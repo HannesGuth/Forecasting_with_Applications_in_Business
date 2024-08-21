@@ -1,0 +1,457 @@
+---
+title: "TP7"
+author: "Hannes Guth"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# {.tabset}
+
+Following packages will be used throughout the document.
+
+```{r, message=FALSE, warning=FALSE, class.source = "fold-show"}
+library(fpp3) # package with the data set
+library(dplyr) # package to use the pipe operator
+library(data.table) # package to handle data tables
+library(ggplot2) # package to create plots
+library(fabletools) # package for forecast and arima models
+```
+
+## Exercise 2 {.tabset}
+
+The Box-Cox transformation is a transformation of data that brings them close to a normal distribution. (1) Depending on the value of the parameter λ, either a logarithmic transformation (λ = 0) or $y_{transformed}=\frac{y_{original}^λ-1}{λ}$ (λ ≠ 0) is performed.
+
+### 1.
+
+#### Turkish GDP from global_economy.
+
+```{r, message=FALSE, warning=FALSE}
+tk = global_economy %>% filter(Country == "Turkey")
+
+options(scipen = 999)
+ggplot(tk, aes(x = Year)) +
+  geom_line(aes(y = GDP/1000000000)) +
+  labs(title = "GDP of Turkey",
+       y = "GDP in Billion") +
+  theme_bw()
+```
+\
+The data are not stationary since there is an exponential trend.
+
+```{r, message=FALSE, warning=FALSE}
+lambda = tk %>% features(GDP, features = guerrero) %>% pull(lambda_guerrero)
+lambda
+```
+λ is different from 0, therefore, the following transformation will be conducted.
+
+```{r, message=FALSE, warning=FALSE}
+tk_trf = data.table("Year" = tk$Year,
+                    "transformed" = ((tk$GDP)^lambda - 1)/lambda
+                    )
+
+ggplot(tk_trf, aes(x = tk_trf$Year)) +
+  geom_line(aes(y = tk_trf$transformed)) +
+  labs(title = "GDP of Turkey",
+       y = "Box-Cox-transformed data",
+       x = "Year") +
+  theme_bw()
+```
+
+The data appears linear, now, but there is still a positive trend. The data will be differentiated by order 1.
+
+```{r, message=FALSE, warning=FALSE}
+# differentiate the data
+tk_trf$differenced = tk_trf$transformed %>% difference(differences = 1)
+
+# plot the newly differentiated data
+ggplot(tk_trf, aes(x = tk_trf$Year)) +
+  geom_line(aes(y = tk_trf$differenced)) +
+    labs(title = "GDP of Turkey, differenced with degree 1",
+       y = "Box-Cox-transformed and differentiated data",
+       x = "Year") +
+  theme_bw()
+```
+\
+Now, the data are stationary.
+
+### 2.
+
+#### Accommodation takings in the state of Tasmania from aus_accommodation.
+
+```{r, message=FALSE, warning=FALSE}
+# select the desired data
+ts = aus_accommodation %>% filter(State == "Tasmania")
+
+# create a first plot
+ggplot(ts, aes(x = Date)) +
+  geom_line(aes(y = Takings)) +
+  labs(title = "Accomodation taking in Tasmania",
+       y = "Takings",
+       x = "Year/Quarter") +
+  theme_bw()
+```
+\
+The data has seasonality and a positive, linear trend is therefore not stational.
+```{r, message=FALSE, warning=FALSE}
+lambda = ts %>% features(Takings, features = guerrero) %>% pull(lambda_guerrero)
+lambda
+```
+λ is close to zero, so the different Box-Cox approaches should yield a very similar result. Both will be conducted to check this expectation.
+
+```{r, message=FALSE, warning=FALSE}
+ts_trf = data.table("Date" = ts$Date,
+                    "transformed λ ≠ 0" = ((ts$Takings)^lambda - 1)/lambda,
+                    "transformed λ = 0" = log(ts$Takings)
+                    )
+
+ggplot(ts_trf, aes(x = Date)) +
+  geom_line(aes(y = ts_trf$`transformed λ ≠ 0`)) +
+  geom_line(aes(y = ts_trf$`transformed λ = 0`)) +
+  labs(title = "Accomodation takings in Tasmania",
+     y = "Transformed Takings",
+     x = "Year/Quarter") +
+  theme_bw()
+```
+\
+As expected, there is no visible difference between both lines.\
+
+The data is not stationary, therefore, both transformations will be differentiated in the following, with lag = 1 and lag = 4 (seasonality, quarterly data), both.\
+At first, the degree of differentiation will be 1.
+
+```{r, message=FALSE, warning=FALSE}
+# differentiate both transformations with differentiation degree = 1 and lag is either 1 or 4 with λ ≠ 0
+ts_trf$differenced_lag1 = ts_trf$`transformed λ ≠ 0` %>% difference(differences = 1, lag = 1)
+ts_trf$differenced_lag4 = ts_trf$`transformed λ ≠ 0` %>% difference(differences = 1, lag = 4)
+
+# plot the data assuming lambda ≠ 0
+lambdaNot0 = ggplot(ts_trf, aes(x = Date)) +
+  geom_line(aes(y = ts_trf$differenced_lag1, color = "lag = 1")) +
+  geom_line(aes(y = ts_trf$differenced_lag4, color = "lag = 4"), size = 1) +
+    labs(title = "Acc. taking in Tasm., λ ≠ 0, diff = 1",
+     y = "Transf. and diff. Takings",
+     x = "Year/Quarter") +
+  theme_bw() +
+  scale_color_manual(values = c("lag = 1" = "black",
+                                "lag = 4" = "blue")) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+# differentiate both transformations with differentiation degree = 1 and lag is either 1 or 4 with λ = 0
+ts_trf$differenced_lag1 = ts_trf$`transformed λ = 0` %>% difference(differences = 1, lag = 1)
+ts_trf$differenced_lag4 = ts_trf$`transformed λ = 0` %>% difference(differences = 1, lag = 4)
+
+# plot the data assuming lambda = 0
+lambdaIs0 = ggplot(ts_trf, aes(x = Date)) +
+  geom_line(aes(y = ts_trf$differenced_lag1, color = "lag = 1")) +
+  geom_line(aes(y = ts_trf$differenced_lag4, color = "lag = 4"), size = 1) +
+    labs(title = "Acc. taking in Tasm., λ = 0, diff = 1",
+     y = "Transf. and diff. Takings",
+     x = "Year/Quarter") +
+  theme_bw() +
+  scale_color_manual(values = c("lag = 1" = "black",
+                                "lag = 4" = "blue")) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+# arrange the plots
+require(gridExtra)
+grid.arrange(lambdaNot0, lambdaIs0, ncol = 2)
+```
+\
+Now, the data will be differentiated with degree 2.
+```{r, message=FALSE, warning=FALSE}
+# differentiate both transformations with differentiation degree = 2 and lag is either 1 or 4 with λ ≠ 0
+ts_trf$differenced_lag1 = ts_trf$`transformed λ ≠ 0` %>% difference(differences = 2, lag = 1)
+ts_trf$differenced_lag4 = ts_trf$`transformed λ ≠ 0` %>% difference(differences = 2, lag = 4)
+
+# plot the data assuming lambda ≠ 0
+lambdaNot0 = ggplot(ts_trf, aes(x = Date)) +
+  geom_line(aes(y = ts_trf$differenced_lag1, color = "lag = 1")) +
+  geom_line(aes(y = ts_trf$differenced_lag4, color = "lag = 4"), size = 1) +
+    labs(title = "Acc. taking in Tasm., λ ≠ 0, diff = 2",
+     y = "Transf. and diff. Takings",
+     x = "Year/Quarter") +
+  theme_bw() +
+  scale_color_manual(values = c("lag = 1" = "black",
+                                "lag = 4" = "blue")) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+# differentiate both transformations with differentiation degree = 2 and lag is either 1 or 4 with λ = 0
+ts_trf$differenced_lag1 = ts_trf$`transformed λ = 0` %>% difference(differences = 2, lag = 1)
+ts_trf$differenced_lag4 = ts_trf$`transformed λ = 0` %>% difference(differences = 2, lag = 4)
+
+# plot the data assuming lambda = 0
+lambdaIs0 = ggplot(ts_trf, aes(x = Date)) +
+  geom_line(aes(y = ts_trf$differenced_lag1, color = "lag = 1")) +
+  geom_line(aes(y = ts_trf$differenced_lag4, color = "lag = 4"), size = 1) +
+    labs(title = "Acc. taking in Tasm., λ = 0, diff = 2",
+     y = "Transf. and difh. Takings",
+     x = "Year/Quarter") +
+  theme_bw() +
+  scale_color_manual(values = c("lag = 1" = "black",
+                                "lag = 4" = "blue")) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+# arrange the plots
+require(gridExtra)
+grid.arrange(lambdaNot0, lambdaIs0, ncol = 2)
+```
+
+\
+Changing the lag from 1 to 4 is important because of seasonality. Differentiating with degree 1 and degree 4 does not make a big difference in terms of stationarity. Both approaches deliver acceptable results where the one with degree 2 gives a little bit more constant/stationary impression.
+
+### 3.
+
+#### Monthly sales from souvenirs.
+```{r, message=FALSE, warning=FALSE}
+# plot the data initially
+ggplot(souvenirs, aes(x = Month)) +
+  geom_line(aes(y = Sales/1000)) +
+  theme_bw() +
+  labs(title = "Souvenirs Sales",
+       x = "Year/Month",
+       y = "Sales in Tsd.")
+```
+\
+There is a positive, exponential trend, the data are not stationary.
+
+```{r, message=FALSE, warning=FALSE}
+lambda = souvenirs %>% features(Sales, features = guerrero) %>% pull(lambda_guerrero)
+lambda
+```
+Again, λ is close to 0, therefore, both approaches will be conducted.
+
+```{r, message=FALSE, warning=FALSE}
+data = data.table("Month" = souvenirs$Month,
+                    "transformed λ ≠ 0" = ((souvenirs$Sales)^lambda - 1)/lambda,
+                    "transformed λ = 0" = log(souvenirs$Sales)
+                    )
+
+ggplot(data, aes(x = Month)) +
+  geom_line(aes(y = data$`transformed λ ≠ 0`, color = "λ ≠ 0")) +
+  geom_line(aes(y = data$`transformed λ = 0`, color = "λ = 0")) +
+  scale_color_manual(values = c("λ ≠ 0" = "blue",
+                                "λ = 0" = "black")) +
+  theme_bw() +
+  labs(title = "Souvenir Sales",
+       x = "Year/Month",
+       y = "Transformed Sales")
+```
+\
+Both lines follow a very similar path. Usually λ ≠ 0 leads to slightly higher values.
+
+In the following, the data will be differentiated with degree 1 and seasonality will be taken into account.
+```{r, message=FALSE, warning=FALSE}
+# creating data for the degree of differentiation with degree 1 for the data with lambda is not 0
+data$differenced_lag1 = data$`transformed λ ≠ 0` %>% difference(lag = 1, differences = 1)
+data$differenced_lag12 = data$`transformed λ ≠ 0` %>% difference(lag = 12, differences = 1)
+
+# plot for lambda is not 0
+lambdaNot0 = ggplot(data, aes(x = Month)) +
+  geom_line(aes(y = data$differenced_lag1, color = "lag = 1")) +
+  geom_line(aes(y = data$differenced_lag12, color = "lag = 12"), size = 1) +
+    labs(title = "Souvenir Sales, λ ≠ 0, diff = 1",
+     y = "Transf. and diff. Sales",
+     x = "Year/Month") +
+  theme_bw() +
+  scale_color_manual(values = c("lag = 1" = "black",
+                                "lag = 12" = "blue")) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+# creating data for the degree of differentiation with degree 1 for the data with lambda is 0
+data$differenced_lag1 = data$`transformed λ = 0` %>% difference(lag = 1, differences = 1)
+data$differenced_lag12 = data$`transformed λ = 0` %>% difference(lag = 12, differences = 1)
+
+# plot for lambda is 0
+lambdaIs0 = ggplot(data, aes(x = Month)) +
+  geom_line(aes(y = data$differenced_lag1, color = "lag = 1")) +
+  geom_line(aes(y = data$differenced_lag12, color = "lag = 12"), size = 1) +
+    labs(title = "Souvenir Sales, λ = 0, diff = 1",
+     y = "Transf. and diff. Sales",
+     x = "Year/Month") +
+  theme_bw() +
+  scale_color_manual(values = c("lag = 1" = "black",
+                                "lag = 12" = "blue")) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+require(gridExtra)
+grid.arrange(lambdaNot0, lambdaIs0, ncol = 2)
+```
+\
+In the following, the data will be differentiated by degree 2 and seasonlity will be taken into account.
+```{r, message=FALSE, warning=FALSE}
+# creating data for the degree of differentiation with degree 2 for the data with lambda is not 0
+data$differenced_lag1 = data$`transformed λ ≠ 0` %>% difference(lag = 1, differences = 2)
+data$differenced_lag12 = data$`transformed λ ≠ 0` %>% difference(lag = 12, differences = 2)
+
+# plot for lambda is not 0
+lambdaNot0 = ggplot(data, aes(x = Month)) +
+  geom_line(aes(y = data$differenced_lag1, color = "lag = 1")) +
+  geom_line(aes(y = data$differenced_lag12, color = "lag = 12"), size = 1) +
+    labs(title = "Souvenir Sales, λ ≠ 0, diff = 2",
+     y = "Transf. and diff. Sales",
+     x = "Year/Month") +
+  theme_bw() +
+  scale_color_manual(values = c("lag = 1" = "black",
+                                "lag = 12" = "blue")) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+# creating data for the degree of differentiation with degree 2 for the data with lambda is 0
+data$differenced_lag1 = data$`transformed λ = 0` %>% difference(lag = 1, differences = 2)
+data$differenced_lag12 = data$`transformed λ = 0` %>% difference(lag = 12, differences = 2)
+
+# plot for lambda is 0
+lambdaIs0 = ggplot(data, aes(x = Month)) +
+  geom_line(aes(y = data$differenced_lag1, color = "lag = 1")) +
+  geom_line(aes(y = data$differenced_lag12, color = "lag = 12"), size = 1) +
+    labs(title = "Souvenir Sales, λ = 0, diff = 2",
+     y = "Transf. and diff. Sales",
+     x = "Year/Month") +
+  theme_bw() +
+  scale_color_manual(values = c("lag = 1" = "black",
+                                "lag = 12" = "blue")) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+# combine plots
+require(gridExtra)
+grid.arrange(lambdaNot0, lambdaIs0, ncol = 2)
+```
+
+Both methods of the Box-Cox transformation led to stationary data. Applying a differentiation degree of 1 or 2 changes the result but both methods lead to stationarity. The lag must be set to 12 because of the seasonality of the data in order to avoid extreme values.
+
+## Exercise 4 {.tabset}
+
+**Consider aus_airpassengers, the total number of passengers (in millions) from Australian air carriers for the period 1970-2011.**
+
+### 1.
+
+#### Use ARIMA() to find an appropriate ARIMA model. What model was selected? Check that the residuals look like white noise. Plot forecasts for the next 10 periods.
+
+```{r, message=FALSE, warning=FALSE}
+library(fpp3)
+ps = aus_airpassengers %>%  filter(Year <= 2011)
+fit = ps %>% model(ARIMA(Passengers))
+report(fit)
+```
+The model ARIMA(0,2,1) has been selected.
+```{r, message=FALSE, warning=FALSE}
+gg_tsresiduals(fit)
+```
+\
+There are no patterns in the Innovation of the residuals and no trend, the mean is approximately 0 but the variance seems to increase a little bit. Also, the acf plot does not show any regularities or patterns. The residuals appear to be approximately normal distributed.\
+They look like white noise.
+
+```{r, message=FALSE, warning=FALSE}
+fit %>% fabletools::forecast(h = 10) %>% autoplot(ps) + theme_bw() + labs(title = "10 period forecast for airpassengers")
+```
+\
+Since the dataset provided data beyond 2011 but the model with trained with data until 2011, the forecast was also made for years where there were actual observations, so there is an overlap visible. The 80%-quantile and the 95%-quantile of the forecast include the actual existing data what is a good sign for the model.
+
+### 2.
+ARIMA(0,2,1) with Backshift operator notation:\
+$1*(1-B)^2*y_t = (1+\theta_1*B^1)*\epsilon_t$
+
+### 3.
+
+#### Plot forecasts from an ARIMA(0,1,0) model with drift and compare these to part 1.
+
+```{r, message=FALSE, warning=FALSE}
+# fit the ARIMA(0,1,0) model
+fit010 = ps %>% model(ARIMA(Passengers ~ 1 + pdq(0,1,0)))
+
+# plot the forecasts
+fit010 %>% fabletools::forecast(h = 10) %>% autoplot(ps) +
+  theme_bw() +
+  labs(title = "Forecast with ARIMA(0,1,0)")
+```
+\
+The forecast in 1. is getting wider confidence intervals in a linear manner while the ones in 3. have a convex shape for the lower and a concave shape for the upper bound. All forecasts are developing positively.
+
+### 4.
+
+#### Plot forecasts from an ARIMA(2,1,2) model with drift and compare these to parts 1 and 3. Remove the constant and see what happens.
+```{r, message=FALSE}
+# set the system language to English to proper state the coming warning message
+Sys.setenv(LANG = "en")
+
+# with drift
+# fit the ARIMA(2,1,2) model
+fit212 = ps %>% model(ARIMA(Passengers ~ 1 + pdq(2,1,2)))
+
+# plot the forecasts
+fit212 %>% fabletools::forecast(h = 10) %>% autoplot(ps) +
+  theme_bw() +
+  labs(title = "Forecast with ARIMA(2,1,2) and drift")
+```
+\
+The forecast looks similar to the one from 1. because both shapes are approximately linear while the lower limit forecast values are slightly concave. Accordingly different it is, compared with 3. All forecasts are developing positively.
+
+```{r, message=FALSE}
+# without drift
+# removing the constant
+fit212 = ps %>% model(ARIMA(Passengers ~ 0 + pdq(2,1,2))) 
+
+# plot the forecast
+fit212 %>% fabletools::forecast(h = 10) %>% autoplot(ps) +
+  theme_bw() +
+  labs(title = "Forecast with ARIMA(2,1,2) without constant")
+```
+\
+No forecast could have been created for this model. This is due to the fact that the constant was removed, what made the model non-stationary, as the warning message supposes after the attempt to create the model.\
+
+
+### 5.
+
+#### Plot forecasts from an ARIMA(0,2,1) model with a constant. What happens?
+
+```{r, message=FALSE, warning=FALSE}
+# fit the ARIMA(0,2,1) model
+fit021 = ps %>% model(ARIMA(Passengers ~ 1 + pdq(0,2,1)))
+
+# plot the forecasts
+fit021 %>% fabletools::forecast(h = 10) %>% autoplot(ps) +
+  theme_bw() +
+  labs(title = "Forecast with ARIMA(0,2,1) with a constant")
+```
+\
+The forecast confidence intervals are much narrower than before. The orientation of the forecast has a positive slope, as before. The upper level of the confidence intervals looks approximately linear while the lower level is slightly convex.
+
+## References
+
+### Websites
+
+https://builtin.com/data-science/box-cox-transformation-target-variable, accessed: 27.03.2023, 14:44.
+
+### Packages
+
+  Hyndman R (2023). _fpp3: Data for "Forecasting: Principles
+  and Practice" (3rd Edition)_. R package version 0.5,
+  <https://CRAN.R-project.org/package=fpp3>.
+  
+  Wickham H, François R, Henry L, Müller K (2022). _dplyr: A
+  Grammar of Data Manipulation_. R package version 1.0.10,
+  <https://CRAN.R-project.org/package=dplyr>.
+  
+  Dowle M, Srinivasan A (2021). _data.table: Extension of
+  `data.frame`_. R package version 1.14.2,
+  <https://CRAN.R-project.org/package=data.table>.
+  
+  H. Wickham. ggplot2: Elegant Graphics for Data Analysis.
+  Springer-Verlag New York, 2016.
+  
+  O'Hara-Wild M, Hyndman R, Wang E (2021). _fabletools: Core
+  Tools for Packages in the 'fable' Framework_. R package
+  version 0.3.2,
+  <https://CRAN.R-project.org/package=fabletools>.

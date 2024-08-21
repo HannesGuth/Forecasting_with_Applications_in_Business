@@ -1,0 +1,192 @@
+---
+title: 'Task 3'
+author: "Hannes Guth"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# {.tabset}
+```{r, message=FALSE, warning=FALSE}
+library(fpp3) # package with the data time series data
+library(ggplot2) # package for plots
+library(lubridate) # package to handle dates
+```
+
+## aus_production
+```{r, message=FALSE, warning=FALSE}
+?aus_production # see details from aus_production
+aus_production # show aus_production
+```
+
+### Information from ?aus_production
+- source: Australian Bureau of Statistics, catalogue number 8301.0.55.001 table 1.
+- class: tsibble
+- half-hourly
+- 6 goods/resources over time
+
+```{r, message=FALSE, warning=FALSE}
+aus_production %>% # take data from aus_production
+  select(Bricks) %>% # select the column "Bricks"
+  autoplot() + # use autoplot to plot the data
+  labs(title = "Bricks production 1956 - 2010", x = "Year/Quarter", y = "Brick production in Mio. Bricks") + # change x - axis label and title
+  theme_bw() # change theme
+```
+\
+
+### Unusual Observations
+During the last 20 years, there are no values for the bricks production.
+There is a strong decline and recovery during the mid 1980s.
+
+### Conclusions
+From the beginning of the data in 1956 (200 million bricks), one can see a positive trend that lasts until the early 1980s (nearly 600 million bricks at maximum). After a strong and quick decline in the mid 1980s and a quick recovery from it, the long term trend appears to be negative. For the last 20 years, there are no data. The last record is roughly below 450 million bricks. The decrease after the peak takes place as a major decrease every 5-7 years and an incomplete recovery from it.
+For the whole time-period, there seems to exist a seasonality with higher production in summer (Q2 and Q3) and a lower production in the winter (Q4 and Q1).
+
+## pelt
+```{r, message=FALSE, warning=FALSE}
+?pelt # see details from pelt
+pelt # show pelt
+```
+
+### Information from ?pelt
+- source: From the "Hudson Bay Company" about their trade with pelts of Snowshoe Hare and Canadian Lynx in 1845 - 1935
+- class: tsibble
+- 1 record per year per hare and lynx, each
+
+```{r, message=FALSE, warning=FALSE}
+pelt %>% # take data from pelt
+  select(Lynx) %>% # select the column "Lynx"
+  autoplot() + # use autoplot to plot the data
+  labs(title = "Trade with Lynx pelts from 1845 - 1935", x = "Year", y = "") + # change x - axis label and title
+  theme_bw() # change theme
+```
+\
+
+### Unusual Observations
+Trade seems to fluctuate between minima and maxima where the time between 2 extrema of a kind is roughly 5 years.
+
+### Conclusions
+The trade with pelts of Lynx fluctuates with minima of under 20,000 and maxima of usually more than 40,000. The time between two extrema of a kind is about 5 years. This might be due to the increasing and decreasing population of Lynx or regulations by the government during these years. Overall, there is neither a negative nor a positive trend. The amplitudes also do not increase or decrease distinctly.
+
+## gafa_stock
+```{r, message=FALSE, warning=FALSE}
+?gafa_stock # see details from gafa_stock
+head(gafa_stock) # show the head of gafa
+tail(gafa_stock) # show the tail of gafa
+```
+
+### Information from ?gafa_stock
+- source: Yahoo Finance
+- daily financial data (working days) from 2014 to 2018
+- stock prices of Google, Amazon, Facebook and Apple
+- values for Open, High, Low, Close, Adj_Close, Volume
+
+
+```{r, message=FALSE, warning=FALSE}
+gafa_stock %>% # take data from gafa_stock
+  select(Close) %>% # select the column "Close"
+  autoplot() + # use autoplot to plot the data
+  labs(title = "Closing price Apple, Amazon, Facebook and Google 2014 - 2018", x = "Year", y = "Closing price") + # change x - axis label and title
+  theme_bw() # change theme
+```
+\
+
+### Unusual observations
+All shares seem to reach a peak in the middle of 2018 and then decrease in price, some more significant than others.
+
+### Conclusions
+The shares of Facebook and Apple operate at a similar level of $125 per share throughout the whole period. Fluctuations mainly take place on a short-term basis and there is only a slightly positive trend on the whole period.
+Amazon and Google, both have a much higher volatility in the short-term and an overall positive trend.
+For all 4 shares, one can state that there was a decline in price in Q3 and Q4 of 2018.
+
+## vic_elec
+```{r, message=FALSE, warning=FALSE}
+?vic_elec # see details from vic_elec
+head(vic_elec) # show the head of vic_elec
+tail(vic_elec) # show the tail of vic_elec
+```
+
+### Information from ?vic_elec
+
+- source: Australian Energy Market Operator
+- collected every 30min
+- data on Demand, Temperature, and if it was a Holiday
+- quarterly for the years 2012, 2013 and 2014
+
+
+```{r, message=FALSE, warning=FALSE}
+vic_elec %>% # take data from aus_production
+  select(Demand) %>% # select the column "Bricks"
+  autoplot() + # use autoplot to plot the data
+  labs(title = "Energy Demand in MWh for Victoria half-hour-wise", x = "Month/Year") + # change x - axis label and title
+  theme_bw() # change theme
+```
+\
+In this visualisation, there are too many datapoints to make meaningful statements even though on can observe some seasonality with a higher demand during summer.
+
+To get a more convincing visualisation, the data will be aggregated by months (sum).
+```{r, message=FALSE, warning=FALSE}
+agg_demand = aggregate(vic_elec$Demand, list(month(vic_elec$Time), year(vic_elec$Time)), sum) # aggregate demand by month and year
+agg_demand = rename(agg_demand, # rename columns
+  "Month" = Group.1,
+  "Year" = Group.2,
+  "Demand" = x
+)
+
+agg_demand$Date = make_date(year = agg_demand$Year, month = agg_demand$Month, day = 1) # transform the time information back to a date
+ggplot(agg_demand, aes(x = Date, y = Demand/1000000)) + # create a new ggplot with Date on the x-axis and demand in GWh on the y-axis
+  geom_line() + # make it a line-plot
+  labs(title = "Monthly electricity demand for Victoria in GWh (over the years)", x = "Year", y = "Electricity demand in GWh") + # set the labels
+  theme_bw() # change the theme
+```
+\
+
+### Unusual observations
+There are peak demands in the summer months and in the beginning of the year. This can be seen in every year.
+
+### Conclusions
+The demand for electricity ranges between 6.2 and 7.6 GWh per month. One can observe two peaks per year, one in the summer and one in the beginning of every year while the peak during summer appears to be bigger than the one in the winter. A possible explanation are the high need for heating with electricity during the summer since Australia is in the southern hemisphere and has therefore a cold summer. Overall, there is no upward/downward trend over the observed years. To confirm the findings, the data will be aggregated by month over the year (mean).
+
+```{r, message=FALSE, warning=FALSE}
+agg_demand_avg = aggregate(agg_demand$Demand, list(agg_demand$Month), mean) # aggregate the data from before by month by taking the mean of every month
+agg_demand_avg = rename(agg_demand_avg, # rename columns
+  "Month" = Group.1,
+  "Demand" = x
+)
+agg_demand_avg$Month.Abb = month.abb[agg_demand_avg$Month] # create a new column to store the abbreviations of the months
+ggplot(agg_demand_avg, aes(x = reorder(Month.Abb, Month), y = Demand/1000000, group = 1)) + # create a new ggplot with Date on the x-axis and demand in GWh on the y-axis
+  geom_line() + # make it a line-plot
+  labs(title = "Monthly electricity demand for Victoria in GWH (one year, mean)", x = "Year", y = "Electricity demand in GWh") + # set the labels
+  theme_bw() #+ # change the theme
+  #scale_x_discrete(limits = month.abb)
+```
+This graph confirms the findings from above. There is a peak in the summer and a smaller peak in the beginning of the year.
+
+## References
+
+### Packages
+
+  Hyndman R (2023). _fpp3: Data for "Forecasting: Principles and Practice" (3rd Edition)_. R
+  package version 0.5, <https://CRAN.R-project.org/package=fpp3>.
+  
+  H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+  
+  Garrett Grolemund, Hadley Wickham (2011). Dates and Times Made Easy with lubridate. Journal
+  of Statistical Software, 40(3), 1-25. URL https://www.jstatsoft.org/v40/i03/.
+
+
+
+
+
+
+
+
+
+
+
+
+
+

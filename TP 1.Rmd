@@ -1,0 +1,183 @@
+---
+title: 'Task 3'
+author: "Hannes Guth"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# {.tabset}
+```{r, message=FALSE, warning=FALSE}
+library(fpp3) # package for tsibble
+library(ggplot2) # package for plots
+library(lubridate) # package to handle dates
+library(data.table) # package to store data in a data table
+library(dplyr) # package for pipe operator
+```
+
+## 1.
+
+### Plot and analyse the data. Is there any seasonality? If yes, how it can be characterized? If no, why? Justify your answer.
+
+At first, the date needs to transformed to the correct data type. Also, a column "weekDay" will be introduced.
+```{r, message=FALSE, warning=FALSE}
+Sys.setlocale("LC_TIME", "en_US") # change the language to English so that the week days later 
+webtraffic <- fread("webtraffic.csv") # load the data set
+webtraffic$Day = as.Date(webtraffic$Day, format = "%d.%m.%Y") # transform the time information into a date format
+webtraffic$weekDay = format(as.Date(webtraffic$Day, format = "%a")) # extract the weekday
+webtraffic$weekDay = weekdays(webtraffic$Day, abbreviate = TRUE) # abbreviate the weekday
+```
+
+```{r, message=FALSE, warning=FALSE}
+ggplot(webtraffic, aes(x = Day, y = Visitors, group = 1)) + # create a new ggplot with Day on the x axis and Visitors on the y-axis
+  geom_path() + # show the path
+  labs(title = "Webtraffic January - July") + # set the title
+  theme_bw() # use the theme bw
+```
+
+\
+One can observe a seasonality where 2 datapoints (2 days) have much lower levels of visitors than the rest of one segment. The expectation is the lower points belong to days of the weekend but this cannot be seen here and will be visualised in th next graph. Besides, there is an overall positive trend and the amplitudes seem to become bigger.
+
+```{r, message=FALSE, warning=FALSE}
+ggplot(webtraffic[1:25,], aes(x = reorder(Day, weekDay), y = Visitors, group = 1)) + # create a new ggplot for a shorter period
+  geom_path() + # show the path
+  labs(title = "Webtraffic short term", x = "Day of the week") + # change the labels
+  scale_x_discrete(labels = webtraffic$weekDay) + # edit the x-axis labels
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) + # adapt the x-axis labels
+  theme_bw() # use the theme bw
+```
+\
+The expectation could be confirmed, the lower levels of visitors belong to days of the weekend.
+
+## 2.
+
+### Make a time series decomposition applying additive and multiplicative models.
+
+#### Additive model
+```{r, message=FALSE, warning=FALSE}
+webtsibble = as_tsibble(webtraffic, index = Day) # transform webtraffic to a tsibble
+
+# apply the additive model for the timeseries
+dec_additive = webtsibble %>%
+  model(
+    classical_decomposition(Visitors, type = "additive")
+  )
+
+additive <- components(dec_additive) # decompose the single components
+
+additive %>% autoplot() + theme_bw() # plot the single components and use the theme bw
+```
+\
+One can observe an overall linear positive trend with a light depression in February - March and bigger one a the end of April.
+Seasonality is visible as described in 1.
+
+#### Multiplicative model
+```{r, message=FALSE, warning=FALSE}
+# apply the multiplicative model for the timeseries
+dec_multiplicative = webtsibble %>%
+  model(
+    classical_decomposition(Visitors, type = "multiplicative")
+  )
+
+multiplicative <- components(dec_multiplicative) # decompose the single components
+
+multiplicative %>% autoplot() + theme_bw() # plot the single components and use the theme bw
+```
+\
+The linear trend that was seen in the additive model can be found here as well. The random error seems to more at random than in the additive model where it seemed to be in relation with the seasonality.
+
+## 3.
+
+### Repeat the decomposition using the stl approach. Which decomposition seems to be most relevant to the data?
+
+```{r, message=FALSE, warning=FALSE}
+# apply the STL model for the timeseries
+dec_stl = webtsibble %>%
+  model(
+    STL(Visitors ~ trend(window = 15) + season(window = 2), 
+        robust = TRUE) 
+  )
+
+stl <- components(dec_stl) # decompose the single components
+
+stl %>% autoplot() + theme_bw() # plot the single components
+```
+\
+The seasonal (week) decomposition seems to be most characteristic for the data because the obvious forms of the overall timeseries and the seasonality are most similar.
+
+## 4.
+
+### Extract trend component from each of three decompositions. Make a comparison by plotting it on the data plot. Do trends components differ? Why? Justify your answer.
+
+```{r, message=FALSE, warning=FALSE}
+# extract the trend from the different models
+trends = data.table("Day" = additive$Day,
+                    "Additive" = additive$trend,
+                    "Multiplicative" = multiplicative$trend,
+                    "STL" = stl$trend)
+
+ggplot(trends, aes(x = Day)) + # create a new ggplot with the trends
+  geom_line(aes(y=Additive), color = "black") + # plot the trend for the additive model
+  geom_line(aes(y=Multiplicative), color = "green") + # plot the trend for the multiplicative model
+  geom_line(aes(y=STL), color = "red") + # plot the trend for the STL model
+  labs(title = "Trend", y = "", x = "Time") + # set the labels
+  theme_bw() # use the bw theme
+```
+
+\
+The trends from the additive and the multiplicative model are the same, therefore, the one from the additive model disappears completely behind the multiplicative one.
+The trend from the STL approach is also similar but seems to be more smooth than the first two.
+
+## 5.
+
+### Extract seasonal component from each of three decompositions. Make a comparison. Do seasonal components differ? Provide a detailed comment on your findings.
+
+```{r, message=FALSE, warning=FALSE}
+# extract the trend from the different models
+seasonal = data.table("Day" = additive$Day,
+                      "Additive" = additive$seasonal,
+                      "Multiplicative" = multiplicative$seasonal,
+                      "STL" = stl$season_week)
+
+ggplot(seasonal, aes(x = Day)) + # create a new ggplot with the trends
+  geom_line(aes(y=Additive), color = "black") + # plot the trend for the additive model
+  geom_line(aes(y=Multiplicative), color = "green") + # plot the trend for the multiplicative model
+  geom_line(aes(y=STL), color = "red") + # plot the trend for the STL model
+  labs(title = "Seasonal", y = "", x = "Time")  + # set the labels
+  theme_bw() # use the bw theme
+```
+\
+Seasonality of the additive and the the STL model seem to vary in the same range. For the additive model, it seems to vary in the same range over the whole time and has a mean of 0. For the STL model, the range increases over time and the mean is below 0. The seasonality from the multiplicative model is on another scale and has a mean of 0. (the concrete data are taken from the tables below) As can be seen in 3., both the seasonalities of the additive and the multiplicative model follow the same pattern even though they are not on the same scale why it cannot be seen in the graph above.
+
+```{r, message=FALSE, warning=FALSE}
+# show the summaries of the seasonalities of the different models
+summary(additive$seasonal)
+summary(multiplicative$seasonal)
+summary(stl$season_week)
+```
+
+## References
+
+### Packages
+
+  Hyndman R (2023). _fpp3: Data for "Forecasting: Principles and Practice" (3rd Edition)_. R package version
+  0.5, <https://CRAN.R-project.org/package=fpp3>.
+
+  H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+
+  Garrett Grolemund, Hadley Wickham (2011). Dates and Times Made Easy with lubridate. Journal of Statistical
+  Software, 40(3), 1-25. URL https://www.jstatsoft.org/v40/i03/.
+
+  Dowle M, Srinivasan A (2021). _data.table: Extension of `data.frame`_. R package version 1.14.2,
+  <https://CRAN.R-project.org/package=data.table>.
+  
+  Wickham H, François R, Henry L, Müller K (2022). _dplyr: A Grammar of Data Manipulation_. R package version
+  1.0.10, <https://CRAN.R-project.org/package=dplyr>.
+
+
+
+
+

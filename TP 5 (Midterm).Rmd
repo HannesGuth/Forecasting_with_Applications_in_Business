@@ -1,0 +1,1013 @@
+---
+title: "TP5"
+author: "Hannes Guth"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# {.tabset}
+
+## Preparation
+
+At first, the necessary packages will be loaded.
+```{r, message=FALSE, warning=FALSE, class.source = "fold-show"}
+library(psych) # package for forecasting
+library(ggplot2) # package for graphs
+library(data.table) # package to create and handle data tables
+library(tsibble) # package time series data format tsibble
+library(fpp2) # package with the data set
+library(fpp3) # package for classical decomposition
+library(dplyr) # package for handling data
+library(rcompanion) # package with the function plotNormalHistogram()
+library(geomtextpath) # package to create lines with text in ggplot2
+library(knitr) # package for table presentation
+library(zoo) # package for dealing with time formats
+require(gridExtra) # package for arranging plots
+```
+
+```{r, message=FALSE, warning=FALSE}
+qcementTS = as_tsibble(qcement, index = Year) # convert the data to tsibble
+sum(is.na(qcementTS)) # check for missing values
+```
+There are no missing values in this data set.
+
+## a)
+
+#### Plot the selected time series and comment the general features you can observe.
+
+At first, a general plot of the whole time series will be created
+```{r, message=FALSE, warning=FALSE}
+qcement %>% autoplot() + # plot the data using autoplot
+  labs(title = "Cement production in Mio t in Portland, Australia Q1 1956 - Q1 2014", y = "Prod. in Mio t", x = "Date") +
+  theme_bw()
+```
+\
+The data seems to have a seasonal component, therefore, one will have a closer look at a smaller period (the most recent 3 year) in the following.
+```{r, message=FALSE, warning=FALSE}
+# plot a shorter period, using ggplot
+ggplot(qcementTS[220:233,], aes(y = value, x = index)) +
+  geom_line() +
+  labs(title = "Cement production in Mio t in Portland, Australia Q1 2011 - Q1 2014", y = "Prod. in Mio t", x = "Date") +
+  theme_bw()
+```
+\
+**1. analysis**\
+The trend seems to be linear, it is to infer that it is therefore additive.\
+The seasonality is annual with its minimum usually in Q1 of each year and its maximum in Q3 or Q4. The seasonality becomes more dominant from year to year, therefore it assumed to be multiplicative.\
+At this stage, it is difficult to make a statement about the remainder but since there is most a multiplicative seasonal component, it seems likely that the remainder might be multiplicative as well.
+
+## b)
+
+#### Apply both the decomposition methods seen in class and plot the results. Comment the results of these two procedures.
+
+The first model is the classical additive model decomposition.
+```{r, message=FALSE, warning=FALSE}
+# create the additive decomposition model
+additive = qcementTS %>%
+  model(
+    classical_decomposition(value, type = "additive")
+  )
+
+additive = components(additive) # extract the components
+additive %>% autoplot + theme_bw() # plot the components
+```
+\
+Starting with a classical decomposition, additive method, the trend appears to be approximately linear, as assumed above. It is the most dominant aspect that drives the value over time, observable at the "y-axis" labels and the relationship, indicated by the small grey bar on the left that is smaller compared to seasonality and random component.\
+The seasonality appears constant over time and not making up a tremendous part of the value.\
+The random component does not appear completely random. One can observe a pattern that it is regularly fluctuating with a decreasing amplitude from 1960 until the late 1970s where it reaches its minimum fluctuation. After these year, the amplitude becomes stronger again during in time but not as regular as in the beginning.\
+
+The multiplicative seasonal decomposition will be created.
+```{r, message=FALSE, warning=FALSE}
+# create the multiplicative decomposition model
+multiplicative = qcementTS %>%
+  model(
+    classical_decomposition(value, type = "multiplicative")
+  )
+
+multiplicative = components(multiplicative) # exctract the components
+multiplicative %>% autoplot + theme_bw() # plot the components
+```
+\
+The trend given by the multiplicative decomposition appears linear and makes up the biggest part of the value over time here as well, the latter even more distinct than in the additive model.\
+The seasonality in this decomposition seems to be constant as in the additive model, but is by definition on another (multiplicative) scale.\
+The random component seems to be indeed random and moving in a constant range over time.\
+
+The STL decomposition will be created as follows.
+```{r, message=FALSE, warning=FALSE}
+stl_model = stl(qcementTS, s.window = 9, t.window = 13) # creat the model
+autoplot(stl_model, ts.colour = 'blue') + theme_bw() # plot the decomposed elements
+```
+\
+Again, one observes a linear trend, making up most of the value development over time.\
+The seasonality component increases with the trend (and therefore the value) over time but stays regular. Its influence on the value is stronger than in the models above.\
+The random component has very low values at the beginning, shifting to higher observations.\
+The trend and seasonal window allow for more flexibility (smaller values for the windows) or more consistency over time (higher values for windows). Both should be chosen as odd numbers. In this case the window for seasonality is set to 9. The minimum recommended value is 7, referring to the function's documentation. This value allows to capture the increase in seasonality fluctuations as well as accounting for the "shocks" in the early 1980s and around 2000. The value for the window of the trend is set to 13 since this gives am acceptable trade-off between showing the linearity of the trend without too many fluctuations and a structure in the random component.\
+See further concepts on this in the Appendix.
+
+## c) {.tabset}
+
+### Preparation
+
+#### Explore different models of ExponenTial Smoothing (ETS), comment your results and select the model that you consider the best in fitting the series. Argument your model’s choice and further justify it by performing a residuals analysis and validating the model’s assumptions using the required statistical testing procedures.
+
+In this paragraph, numerous models will be created, using the ets method. They will be evaluated together after creation.
+```{r, message=FALSE, warning=FALSE}
+# create all the models
+AAA = ets(qcement, model = "AAA")
+
+MAA = ets(qcement, model = "MAA")
+
+MAM = ets(qcement, model = "MAM")
+
+MMM = ets(qcement, model = "MMM")
+
+MNM = ets(qcement, model = "MNM")
+
+AAN = ets(qcement, model = "AAN")
+
+MMN = ets(qcement, model = "MMN")
+
+MAN = ets(qcement, model = "MAN")
+
+ANN = ets(qcement, model = "ANN")
+
+MNN = ets(qcement, model = "MNN")
+
+models = list(AAA, MAA, MAM, MMM, MNM, AAN, MMN, MAN, ANN, MNN) # gather the models in a list
+```
+
+#### Argument your model’s choice and further justify it by performing a residuals analysis and validating the model’s assumptions using the required statistical testing procedures.
+
+As indicated above, all models will be evaluated together in different criteria. Important characteristics and evaluation criteria mainly referring to the residuals will be taken from the models and saved in a data frame.\
+ - Model name\
+ - AIC\
+ - AICc\
+ - MSE\
+ - AMSE\
+ - Mean of the residuals\
+ - p-Value for the mean of the being equal to 0\
+ - correlation of the residuals with the residuals in the next period\
+ - correlation of the residuals with the residuals in the next year in the same quarter\
+ - the variance of the variance\
+ - p-value for the residuals following the normal distribution\
+ 
+```{r, message=FALSE, warning=FALSE}
+# create a new data table to save the information
+evaluation = data.table("Model" = "",
+                        "AIC" = numeric(10),
+                        "AICc" = 0,
+                        "MSE" = 0,
+                        "AMSE" = 0,
+                        "Mean residuals" = 0,
+                        "Mean_0_pValue" = 0,
+                        "Correlation_lag_1" = 0,
+                        "Correlation_lag_4" = 0,
+                        "Var_of_Var" = 0,
+                        "Normality_pValue" = 0)
+
+# create a residuals data table to execute need computations on the residuals of the respectively current model in the upcoming for loop that loops over all models
+residuals = as_tsibble(AAA$residuals, index = Year)
+current_residuals = data.table("True_Value" = qcementTS$value,
+                               "Time" = residuals$index,
+                               "Residual" = 0,
+                               "lag1" = 0,
+                               "lag4" = 0,
+                               "var" = 0
+                               )
+
+for (i in 1:length(models)){
+  evaluation[i,1] = models[[i]]$method
+  
+  # measures directly taken from the model
+  evaluation[i,2] = models[[i]]$aic
+  evaluation[i,3] = models[[i]]$aicc
+  evaluation[i,4] = models[[i]]$mse
+  evaluation[i,5] = models[[i]]$amse
+  
+  # calculated measures
+  
+  # mean
+  evaluation[i,6] = mean(models[[i]]$residuals)
+  evaluation[i,7] = t.test(models[[i]]$residuals)$p.value
+  
+  # autocorrelations
+  current_residuals$Residual = models[[i]]$residuals
+  current_residuals$lag1 = shift(current_residuals$Residual, 1) # lag = 1
+  current_residuals$lag4 = shift(current_residuals$Residual, 4) # lag = 4
+  evaluation[i,8] = cor(current_residuals$Residual[-1], current_residuals$lag1[-1])
+  evaluation[i,9] = cor(current_residuals$Residual[-c(1:4)], current_residuals$lag4[-c(1:4)])
+  
+  # constant variance
+  # go through all residuals of the current model, set a window (10 observation long) and get the variance of this current window (similar to Kernel idea)
+  for (j in 4:(nrow(current_residuals)-3)){ # go through all residuals of the current model
+      current_residuals[j,6] = as.double(var(current_residuals[(j-4):(j+5),3]))
+  }
+  current_residuals$var = ifelse(current_residuals$var == 0, NA, current_residuals$var) # set the beginning and end values which did not have a full interval and were therefore neglected as NA
+  evaluation[i,10] = var(current_residuals$var[4:228]) # calculate the final variance of the variances
+  evaluation[i,11] = shapiro.test(models[[i]]$residuals)$p.value # test for normality of the residuals (1)
+}
+
+kable(evaluation)
+```
+\
+
+### AIC
+
+This figure will provide insight for the AIC and AICc values of the models.
+```{r, message=FALSE, warning=FALSE}
+# plot for all models
+AIC1 = ggplot(evaluation, aes(x = reorder(Model, -AIC))) +
+  geom_point(aes(y = AIC, color = "AIC"), shape = 21, show.legend = FALSE) +
+  geom_point(aes(y = AICc, color = "AICc"), shape = 21, show.legend = FALSE) +
+  scale_color_manual(values = c("AIC" = "black",
+                                "AICc" = "red")) +
+  theme(legend.title = element_blank(),
+          axis.text=element_text(size=12),
+          axis.title=element_text(size=12),
+          panel.background = element_rect(fill = "white", colour = "black"),
+          panel.grid.major = element_line(colour = "white", size = 0.5),
+          axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "AIC for different ETS models", x = "", y = "AIC")
+
+# plot for models with AIC < 100
+AIC2 = ggplot(evaluation[AIC < 100,], aes(x = reorder(Model, -AIC), label = round(evaluation[AIC < 100]$AIC,2))) +
+  geom_point(aes(y = AIC, color = "AIC"), shape = 21) +
+  geom_point(aes(y = AICc, color = "AICc"), shape = 21) +
+  scale_color_manual(values = c("AIC" = "black",
+                                "AICc" = "red")) +
+  ylim(0,100) +
+  geom_label(aes(y = AIC), hjust=0.3, vjust=-0.4) +
+  theme(legend.title = element_blank(),
+          axis.text=element_text(size=12),
+          axis.title=element_text(size=12),
+          panel.background = element_rect(fill = "white", colour = "black"),
+          panel.grid.major = element_line(colour = "white", size = 0.5),
+          axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "AIC for the 4 best ETS models", x = "", y = "")
+
+grid.arrange(AIC1, AIC2, ncol=2)
+```
+\
+The AIC (Akaike Information Criterion) gives insight about information loss. The lower the information loss, the better is the model considered. The *MAM* model provides the lowest value for information loss. One can see that AIC and AICc (the version of the AIC with enhancement for small samples) are approximately the same because the sample size is large and the AICc converges to the AIC the bigger the sample is. The labels refer to the AIC value.\
+
+### MSE
+The following figure will give an overview about the Mean Squared Errors of the different models.
+```{r, message=FALSE, warning=FALSE}
+# plot for all models
+MSE1 = ggplot(evaluation, aes(x = reorder(Model, -MSE))) +
+  geom_point(aes(y = MSE)) +
+  theme(legend.title = element_blank(),
+          axis.text=element_text(size=12),
+          axis.title=element_text(size=12),
+          panel.background = element_rect(fill = "white", colour = "black"),
+          panel.grid.major = element_line(colour = "white", size = 0.5),
+          axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "MSE for all models", x = "")
+
+# plot for models with MSE < 0.01
+MSE2 = ggplot(evaluation[MSE < 0.01,], aes(x = reorder(Model, -MSE), label = round(MSE,4))) +
+  geom_point(aes(y = MSE)) +
+  geom_text(aes(y = MSE), hjust=0.5, vjust=1.2) +
+  theme(legend.title = element_blank(),
+          axis.text=element_text(size=12),
+          axis.title=element_text(size=12),
+          panel.background = element_rect(fill = "white", colour = "black"),
+          panel.grid.major = element_line(colour = "white", size = 0.5),
+          axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "MSE for the 5 best models", x = "", y = "")
+
+# show the plots
+grid.arrange(MSE1, MSE2, ncol = 2)
+```
+\
+The MSE (Mean Squared Error) provides information about the average error that was made while forecasting. The smaller the error, the better the model is considered. Again, the *MAM* model performs best and gives an MSE on the training data of 0.0061.
+
+### Mean = 0
+
+In the following analysis, one will receive information about the probability of the mean of the residuals can be regarded as 0. Therefore, t-test have been done for every model and the respective p-values will be presented.
+
+```{r, message=FALSE, warning=FALSE}
+ggplot(evaluation, aes(x = reorder(Model, -Mean_0_pValue))) +
+  geom_point(aes(y = Mean_0_pValue)) +
+  theme(legend.title = element_blank(),
+          axis.text=element_text(size=12),
+          axis.title=element_text(size=12),
+          panel.background = element_rect(fill = "white", colour = "black"),
+          panel.grid.major = element_line(colour = "white", size = 0.5),
+          axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "p-Value for mean = 0 for all models", x = "", y = "p-Value") +
+  # add lines for typical p-value borders
+  geom_texthline(yintercept = 0.01,
+                 label = "1%",
+                 color = "black",
+                 size = 3) +
+  geom_texthline(yintercept = 0.05,
+               label = "5%",
+               color = "black",
+               size = 3) +
+  geom_texthline(yintercept = 0.10,
+                 label = "10%",
+                 color = "black",
+                 size = 3)
+```
+\
+Since the 0-hypothesis is that the mean is equal to 0 and low p-values indicate that it is very likely that the 0-hypothesis is to reject, high p-values suggest that the mean is equal to 0 and therefore the assumption of unbiased residuals holds. The models are *MMN*, *AAN*, *MAN*, *MAM* and *AAA* with p-values above 0.5.\
+
+### Autocorrelation
+
+In this segment it will be discussed for which models a problem of autocorrelation of the residuals exists. For this, the previously created columns Correlation_lag_1 and Correlation_lag_4 will be used which refer to the correlation of residuals with the ones that appear 1 in the next quarter and those that appear in the next year in the same quarter, respectively.
+
+```{r, message=FALSE, warning=FALSE}
+ggplot(evaluation, aes(x = reorder(Model, -Correlation_lag_4))) +
+  geom_point(aes(y = Correlation_lag_1, color = "lag = 1")) +
+  geom_point(aes(y = Correlation_lag_4, color = "lag = 4")) +
+  scale_color_manual(values = c("lag = 1" = "black",
+                                "lag = 4" = "red")) +
+  theme(legend.title = element_blank(),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=12),
+        panel.background = element_rect(fill = "white", colour = "black"),
+        panel.grid.major = element_line(colour = "white", size = 0.5),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "Autocorrelation of residuals", x = "", y = "Correlation coefficient")
+```
+\
+One can observe strong positive correlations for the residuals of the models *MNN*, *MMN*, *ANN*, *MAN* and *AAN* with a 4 period shift. For the 1 period shift the situation is better. Also negative correlations appear here but the absolute values are comparably small. The lowest correlations can be seen for the models *AAA*, *MAdA* and *MAM*.\
+
+### Constant variance
+
+Another assumption is a constant variance. Therefore the variances of the variance of each model will be examined. the lower this value is the more constant the variance for this model will be.
+
+```{r, message=FALSE, warning=FALSE}
+# plot for all models
+vov1 = ggplot(evaluation, aes(x = reorder(Model, -Var_of_Var))) +
+  geom_point(aes(y = Var_of_Var)) +
+  theme(legend.title = element_blank(),
+      axis.text=element_text(size=12),
+      axis.title=element_text(size=12),
+      panel.background = element_rect(fill = "white", colour = "black"),
+      panel.grid.major = element_line(colour = "white", size = 0.5),
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "All models", x = "", y = "Variance")
+
+# plots for models with a variance of the variance < 0.001
+vov2 = ggplot(evaluation[Var_of_Var < 0.001,], aes(x = reorder(Model, -Var_of_Var))) +
+  geom_point(aes(y = Var_of_Var)) +
+  theme(legend.title = element_blank(),
+      axis.text=element_text(size=12),
+      axis.title=element_text(size=12),
+      panel.background = element_rect(fill = "white", colour = "black"),
+      panel.grid.major = element_line(colour = "white", size = 0.5),
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "Variance < 0.001", x = "", y = "")
+
+# show the plots
+grid.arrange(vov1, vov2, ncol = 2)
+```
+\
+Only 3 models have apparently an issue with this assumption, namely *AAA*, *AAN* and *ANN*. All other models perform well and have approximately the same values very close to 0. Referring to this measure, the best 3 models are *MMM*, *MNM* and *MAM*. A further graphical analysis for the variance can be seen in the appendix.
+
+### Normality
+
+The last characteristic to check is the normality. For this, a test for normality has been conducted above when calculating the p value for the residuals of the specific model being normal distributed. The results will be presented as follows.
+
+```{r, message=FALSE, warning=FALSE}
+# create the graph for the the p-values referring to the normality of residuals of the models
+ggplot(evaluation, aes(x = reorder(Model, -Normality_pValue))) +
+  geom_point(aes(y = Normality_pValue)) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "Test for normal distribution", x = "", y = "p-value") +
+  # add lines for the usual p-value borders
+  geom_texthline(yintercept = 0.01,
+                 label = "1%",
+                 color = "black",
+                 size = 3) +
+  geom_texthline(yintercept = 0.05,
+               label = "5%",
+               color = "black",
+               size = 3) +
+  geom_texthline(yintercept = 0.10,
+                 label = "10%",
+                 color = "black",
+                 size = 3)
+```
+\
+As already applied for the test of the mean of the residuals being equal to 0, here as well, a high p-value is desirable to *not* reject the 0-hypothesis, which states that the data are normally distributed. Only 3 models, *MMM*, *MNM*, *MAM* have values above 0.5. Further analyses can be seen in the appendix.
+
+### Best models
+
+After these analyses, two models performed well in nearly every category, the *MMM* and the *MAM* model. For those, the components plots will be performed.
+
+```{r, message=FALSE, warning=FALSE}
+plot(MAM) # plot the decomposition of MAM model
+```
+\
+For the *MAM* one can see that the level is rising in an overall linear manner. The *trend* moves in the same range throughout the whole time but shows irregularities and strong declines and recoveries, for example in the early 1980s, early and mid 1990s and the beginning of the 2000s. This reflects what the *observed* values suggest as well. The *seasonal component* varies over the whole time in the same range.
+
+```{r, message=FALSE, warning=FALSE}
+plot(MMM) # show the decomposition of the MMM model
+```
+\
+As for the *MAM* model, one can observe for the *MMM* model an overall linear positive development in the *level*. The *slope* come in the first years from a lower level and then stays constant on the rised level. It reflects as well the shocks that were mentioned in the *MAM* model. The *seasonal component* looks the same as for the *MAM* model.
+\
+Because of the performance of the *MAM* model in the analysis of the residuals, this model is regarded the best choice from the STL approaches and will be used in the upcoming analyses.
+\
+Further analyses on the residuals of MAM can be seen here.
+
+Constant variance
+\
+The following graphic shall just give an idea how big the variance and standard deviation are, compared to the level of the true observations.
+```{r, message=FALSE, warning=FALSE}
+residuals = as_tsibble(MAM$residuals, index = Year) # save the residuals as a tsibble
+
+# create a new residuals data table with information about the true value, predicted values, time and residuals the MAM model only
+residuals = data.table("True_Value" = qcementTS$value,
+                       "Predicted_Value" = MAM$fitted,
+                       "Time" = residuals$index,
+                       "Residual" = residuals$value)
+
+kable(head(residuals))
+```
+
+```{r, message=FALSE, warning=FALSE, out.width=700}
+# create new columns for the variance and the standard deviation
+residuals$var = 0
+residuals$std = 0
+
+# redo the loop from above but only for the MAM model now
+for (i in 5:(nrow(residuals)-5)){ # go through all observations except the beginning end ending 4 observations
+  residuals[i,5] = as.double(var(residuals[(i-4):(i+5),4])) # calculate the variance for every interval
+  residuals[i,6] = as.double(sqrt(var(residuals[(i-4):(i+5),4]))) # calculate the standard deviation for every interval
+}
+
+# substitute the first and last values where there were no values calculated by NAs
+residuals$var = ifelse(residuals$var == 0, NA, residuals$var)
+residuals$std = ifelse(residuals$std == 0, NA, residuals$std)
+
+cv1 = ggplot(residuals) +
+  geom_line(aes(y = var, x = Time, color = "var")) +
+  geom_line(aes(y = std, x = Time, color = "std")) +
+  scale_color_manual(values = c("var" = "blue",
+                                "std" = "red")) +
+  theme(legend.position = "none",
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5),
+    axis.text.x = element_text(vjust = 0.5, hjust=0.5)) +
+  labs(title = "Variation and Standard Deviation over time", x = "Time", y = "var/std")
+
+cv2 = ggplot(residuals) +
+  geom_line(aes(y = var, x = Time, color = "var")) +
+  geom_line(aes(y = std, x = Time, color = "std")) +
+  geom_point(aes(y = Residual, x = Time)) +
+  scale_color_manual(values = c("var" = "blue",
+                                "std" = "red",
+                                "True value" = "black")) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5),
+    axis.text.x = element_text(vjust = 0.5, hjust=0.5)) +
+  labs(title = "Var. and Std. over time in relation", x = "Time", y = "var/std")
+
+# show the plots
+grid.arrange(cv1, cv2, nrow = 2)
+```
+\
+The variance seems to be constant over time. At least, it varies in the same range over the year and does not show any trend or seasonality.
+
+**Normal distribution**
+```{r, message=FALSE, warning=FALSE, out.width=700}
+# plot the residuals with a normal distribution line for comparison
+plotNormalHistogram(residuals$Residual, breaks = 20)
+```
+\
+As the p-value suggested, the distribution of the residuals follows roughly the normal distribution.
+
+**True Value and Prediction over time**
+```{r, message=FALSE, warning=FALSE, out.width=700}
+tpv1 = ggplot(residuals, aes(x = Time)) +
+  geom_line(aes(y = True_Value, color = "True Value")) +
+  geom_line(aes(y = Predicted_Value, color = "Predicted Value")) +
+  scale_color_manual(values = c("True Value" = "black",
+                                "Predicted Value" = "blue")) +
+  theme(legend.title = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=12),
+        panel.background = element_rect(fill = "white", colour = "black"),
+        panel.grid.major = element_line(colour = "white", size = 0.5),
+        axis.text.x = element_text(vjust = 0.5, hjust=0.5)) +
+  labs(title = "True values and predicted values", x = "Time", y = "Prod. in Mio t")
+
+tpv2 = ggplot(residuals[200:233,], aes(x = Time)) +
+  geom_line(aes(y = True_Value, color = "True Value")) +
+  geom_line(aes(y = Predicted_Value, color = "Predicted Value")) +
+  scale_color_manual(values = c("True Value" = "black",
+                                "Predicted Value" = "blue")) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5),
+    axis.text.x = element_text(vjust = 0.5, hjust=0.5)) +
+  labs(title = "True values and predicted values", x = "Time", y = "Prod. in Mio t")
+
+# show the plots
+grid.arrange(tpv1, tpv2, nrow = 2)
+```
+\
+The prediction follows the true values closely over the whole time. Special focus on recent periods and a more detailed view provides the second graph below.
+
+## d)
+
+#### Compute a h = 10 forecast and prediction intervals for different levels: 80%, 90%, 95% and 99%.
+
+The first graph gives a rough overview about the confidence intervals for the 10 period prediction, showing the whole time series data from before.
+```{r, message=FALSE, warning=FALSE}
+# plot the observed values (all periods), forecasts and confidence intervals for the MAM model (h = 10 periods)
+plot(predict(MAM,
+             h=10,
+             interval="confidence",
+             level = c(0.80,0.90,0.95,0.99), ylab = "Prod. in Mio t"
+            )
+)
+```
+\
+Since this graph only gives a rough overview over the whole period and does not offer a very clear view on the confidence intervals, the following graph will give special focus on the recent periods (50).
+```{r, message=FALSE, warning=FALSE}
+# get the prediction, using predict and the MAM model
+prediction = data.frame(predict(MAM,
+        h=10,
+        interval="confidence",
+        level = c(0.80,0.90,0.95,0.99)
+        )
+)
+kable(head(prediction)) # show the first observations
+```
+
+```{r, message=FALSE, warning=FALSE}
+# create empty data table that contains the true values of the time series
+plotdata_True = data.table("Time" = as.character(tail(residuals$Time, 50)),
+                      "Value" = tail(residuals$True_Value, 50),
+                      "L80" = NA,
+                      "H80" = NA,
+                      "L90" = NA,
+                      "H90" = NA,
+                      "L95" = NA,
+                      "H95" = NA,
+                      "L99" = NA,
+                      "H99" = NA,
+                      "Type" = "True")
+
+# create a data table that contains the predicted value and the respective confidence interval values
+plotdata_Forecast = data.table("Time" = rownames(prediction),
+                               "Value" = prediction$Point.Forecast,
+                               "L80" = prediction$Lo.80,
+                               "H80" = prediction$Hi.80,
+                               "L90" = prediction$Lo.90,
+                               "H90" = prediction$Hi.90,
+                               "L95" = prediction$Lo.95,
+                               "H95" = prediction$Hi.95,
+                               "L99" = prediction$Lo.99,
+                               "H99" = prediction$Hi.99,
+                               "Type" = "Forecast")
+
+# combine both tables
+plotdata = rbindlist(list(plotdata_True, plotdata_Forecast))
+
+# plot the data
+ggplot(plotdata, aes(x = as.yearqtr(Time))) +
+  geom_line(aes(y = Value), size = 1) +
+  geom_line(aes(y = L80, color = "80% CI")) +
+  geom_line(aes(y = H80, color = "80% CI")) +
+  geom_line(aes(y = L90, color = "90% CI")) +
+  geom_line(aes(y = H90, color = "90% CI")) +
+  geom_line(aes(y = L95, color = "95% CI")) +
+  geom_line(aes(y = H95, color = "95% CI")) +
+  geom_line(aes(y = L99, color = "99% CI")) +
+  geom_line(aes(y = H99, color = "99% CI")) +
+  scale_color_manual(values = c("80% CI" = "lightblue",
+                                "90% CI" = "blue",
+                                "95% CI" = "darkblue",
+                                "99% CI" = "black")) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5)) +
+  labs(title = "Recent 50 periods and Confidence intervals", x = "", y = "Prod. in Mio t")
+```
+\
+One can see that the forecast follows a linear trend and the seasonality. The confidence follow that shape as well.
+
+## e)
+
+#### Compute a h = 10 forecast and prediction intervals for the same levels of the previous point, this time by using bootstrapping: a) assuming normality of residuals and b) sampling based on your fitted model’s residuals.
+
+As a first step, one will create a new *MAM* model that allows to extract several parameters easier.
+```{r, message=FALSE, warning=FALSE, class.source = "fold-show"}
+MAM2 = qcementTS %>% # recreate the model with MAM
+  model(
+    `SES` = ETS(value ~ error("M") + trend("A") + season("M"))
+    )
+```
+
+Since one has a **M**ultiplicative error, an **A**dditive trend and a **M**ultiplicative seasonality. The state space model for calculating the forecast is the following.
+
+**Forecast:** $y_t = (l_{t-1} + b_{t-1}) * s_{t-1} * (1 + \epsilon_{t})$ \
+**Level:** $l_{t} = (l_{t-1} + b_{t-1}) * (1+ \alpha * \epsilon_{t})$ \
+**Trend:** $b_{t} = b_{t-1} + \beta * (l_{t-1} + b_{t-1}) * \epsilon_{t}$ \
+**Seasonality:** $s_{t} = s_{t-m}*(1 + \gamma * \epsilon_{t})$ \
+
+The variables are retrieved from the unlisted model report.\
+As seasonality one chooses 4, set h to 10 for a 10 step forecast and set R as repetitions to 1000.
+
+```{r, message=FALSE, warning=FALSE, class.source = "fold-show"}
+ur = unlist(report(MAM2)) # get the components of the report of MAM2 in an accessible form
+```
+
+The initial values and parameters are retrieved from the model or set manually.
+```{r, message=FALSE, warning=FALSE}
+# retrieve the parameters from models
+level = ur$SES.fit.states.l234
+b = ur$SES.fit.states.b234
+alpha = ur$SES.fit.par.estimate1
+beta = ur$SES.fit.par.estimate2
+gamma = ur$SES.fit.par.estimate3
+sigma = sqrt(ur$SES.fit.fit.sigma2)
+
+
+m = 4
+h = 10
+R = 1000
+```
+
+The matrices to save the values for the forecast in R implementations will be introduced.
+```{r, message=FALSE, warning=FALSE}
+set.seed(1) # reproducibility
+
+# create the matrices to store the data for the forecasts later on
+
+# for the normal distribution of the residuals
+s.mat.norm = matrix(nr = h + m, nc = R)
+l.mat.norm = matrix(nr = h, nc = R)
+b.mat.norm = matrix(nr = h, nc = R)
+y.norm = matrix(nr = h, nc = R)
+
+# for the bootstrap method
+s.mat.bs = matrix(nr = h + m, nc = R)
+l.mat.bs = matrix(nr = h, nc = R)
+b.mat.bs = matrix(nr = h, nc = R)
+y.bs = matrix(nr = h, nc = R)
+```
+
+The initial sets of errors are being established.
+```{r, message=FALSE, warning=FALSE}
+# create the initial error terms
+eps.norm = rnorm(n=R, mean=0 , sd=sigma)
+eps.bs = sample(components(MAM2)$remainder[5:237], 1000, replace = TRUE)
+```
+
+In order to run the forecast for the 10 periods later one will create the values of the first period using the mentioned formulas above. This applies for both methods, the method when creating errors from a normal distribution and from bootstrap.
+
+```{r, message=FALSE, warning=FALSE}
+# normal distribution method
+l.mat.norm[1,] = (level + b) * (1 + alpha * eps.norm) # level
+b.mat.norm[1,] = b + beta * (level + b) * eps.norm # trend
+
+# to deal with the fact that the formula involves using the seasonality values from 4 periods before as well, these values are considered in the matrix for the seasonal components
+s.mat.norm[1,] = ur$SES.fit.states.s231
+s.mat.norm[2,] = ur$SES.fit.states.s232
+s.mat.norm[3,] = ur$SES.fit.states.s233
+s.mat.norm[4,] = ur$SES.fit.states.s234
+s.mat.norm[5,] = s.mat.norm[5-4,] * (1 + gamma * eps.norm)
+
+y.norm[1,] = (level + b) * s.mat.norm[4,] * (1 + eps.norm) # value
+
+# the same procedure applies for the bootstrpa method as well
+l.mat.bs[1,] = (level + b) * (1 + alpha * eps.bs)
+b.mat.bs[1,] = b + beta * (level + b) * eps.bs
+s.mat.bs[1,] = ur$SES.fit.states.s231
+s.mat.bs[2,] = ur$SES.fit.states.s232
+s.mat.bs[3,] = ur$SES.fit.states.s233
+s.mat.bs[4,] = ur$SES.fit.states.s234
+s.mat.bs[5,] = s.mat.bs[5-4,] * (1 + gamma * eps.bs)
+y.bs[1,] = (level + b) * s.mat.bs[4,] * (1 + eps.bs)
+```
+
+As indicated before, the previously created values for the first forecast period will be used as a basis to let the loop run over the yet missing 9 periods. The procedure is the same for both methods and uses the equation from above as follows.
+
+```{r, message=FALSE, warning=FALSE}
+# apply a for loop over 9 periods to make the forecast for all of the 1000 paths
+
+for (i in 2:10){
+  # for the normal distribution method
+  eps.norm = rnorm(n = R, mean = 0, sd = sigma)
+  b.mat.norm[i,] = b.mat.norm[i-1,] + beta * (l.mat.norm[i-1,] + b.mat.norm[i-1,]) * eps.norm
+  l.mat.norm[i,] = (l.mat.norm[i-1,] + b.mat.norm[i-1,]) * (1 + alpha * eps.norm)
+  s.mat.norm[i+m,] = s.mat.norm[i,] * (1 + gamma * eps.norm)
+  y.norm[i,] = (l.mat.norm[i-1,] + b.mat.norm[i-1,]) * s.mat.norm[i,] * (1 + eps.norm)
+  
+  # for the bootstrap method
+  eps.bs = sample(components(MAM2)$remainder[5:237], 1000, replace = TRUE)
+  b.mat.bs[i,] = b.mat.bs[i-1,] + beta * (l.mat.bs[i-1,] + b.mat.bs[i-1,]) * eps.bs
+  l.mat.bs[i,] = (l.mat.bs[i-1,] + b.mat.bs[i-1,]) * (1 + alpha * eps.bs)
+  s.mat.bs[i+m,] = s.mat.bs[i,] * (1 + gamma * eps.bs)
+  y.bs[i,] = (l.mat.bs[i-1,] + b.mat.bs[i-1,]) * s.mat.bs[i,] * (1 + eps.bs)
+}
+
+# show exemplary values
+head(y.norm[,1:10])
+head(y.bs[,1:10])
+```
+
+This matrix shows exemplary the first 10 of 1000 examples for the forecast over the first 6 periods.
+
+To get a first impression how these forecast can be interpreted, they will be presented graphically as a possible continuation of the existing true observations.
+
+```{r, message=FALSE, warning=FALSE}
+plot(qcementTS$value, ylim = c(0,5), type = "l", main = "Errors from Normal distribution", xaxt="n", xlab = "", ylab = "Prod. in Mio t", las=1) # plot the true values
+axis(1, at = c(1,53,105,157,209), labels = qcementTS$index[c(1,53,105,157,209)]) # change the axis labels
+
+for (i in c(1:1000)){
+  points(y.norm[,i] ~ c(233:242), type ="l", lwd = 2, col = yarrr::transparent("blue", trans.val = .95))
+} # plot the predictions with transparency so that one can see where are more and less data points
+
+# the same procedure applies for the bootstrap method
+plot(qcementTS$value, ylim = c(0,5), type = "l", main = "Errors from Bootstrap", xaxt="n", xlab = "", ylab = "Prod. in Mio t", las=1)
+axis(1, at = c(1,53,105,157,209), labels = qcementTS$index[c(1,53,105,157,209)])
+for (i in c(1:1000)){
+  points(y.bs[,i] ~ c(233:242), type ="l", lwd = 2, col = yarrr::transparent("blue", trans.val = .95))
+}
+
+```
+\
+In both graphs one can observe the seasonality in the forecast and the majority of values is centered around a theoretical linear continuation of the trend with its seasonality. Observations further away from this forecast appear more transparent because there are fewer of them.
+
+To get support this information with deeper analysis, confidence intervals will be established in the following paragraph. At first a data table with information about the period, its true value (up to period 233) and predictions after this time in combination with confidence intervals at 80%, 90%, 95% and 99% are created.
+
+A data table will be created to store the information about the period, the true value, the prediction and confidence intervals, similar as above in d).
+```{r, message=FALSE, warning=FALSE}
+# Since everything is in one data table and when data for true values exist, no data for predictions will exist. The gaps will be filled with NAs to not disrupt the plot later on
+ci_norm = data.table("Period" = c(qcementTS$index, forecast(MAM2, h = 10)$index),
+                "True_Value" = c(qcementTS$value, rep(NA,10)),
+                "Prediction" = c(rep(NA, length(qcement)), forecast(MAM2, h = 10)$.mean),
+                "lower_80" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.norm, 1, quantile, probs=c(0.1, 0.90))))$V1),
+                "upper_80" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.norm, 1, quantile, probs=c(0.1, 0.90))))$V2),
+                "lower_90" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.norm, 1, quantile, probs=c(0.05, 0.95))))$V1),
+                "upper_90" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.norm, 1, quantile, probs=c(0.05, 0.95))))$V2),
+                "lower_95" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.norm, 1, quantile, probs=c(0.025, 0.975))))$V1),
+                "upper_95" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.norm, 1, quantile, probs=c(0.025, 0.975))))$V2),
+                "lower_99" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.norm, 1, quantile, probs=c(0.005, 0.995))))$V1),
+                "upper_99" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.norm, 1, quantile, probs=c(0.005, 0.995))))$V2))
+```
+
+**Forecasts with errors from Normal Distribution**\
+```{r, message=FALSE, warning=FALSE, class.source = "fold-show"}
+head(ci_norm[,1:10]) # show exemplary values
+```
+
+To set a context for this table, all the information will be plotted in a single graph, first for the whole period and then for the last periods to get a more detailed picture.
+
+```{r, message=FALSE, warning=FALSE}
+# create the graph for all periods
+all_periods_norm = ggplot(ci_norm, aes(x = Period)) +
+  # plot the true values, predictions and confidence intervals
+  geom_line(aes(y = True_Value, color = "True value")) +
+  geom_line(aes(y = Prediction)) +
+  geom_line(aes(y = lower_80, color = "80% CI")) +
+  geom_line(aes(y = upper_80, color = "80% CI")) +
+  geom_line(aes(y = lower_90, color = "90% CI")) +
+  geom_line(aes(y = upper_90, color = "90% CI")) +
+  geom_line(aes(y = lower_95, color = "95% CI")) +
+  geom_line(aes(y = upper_95, color = "95% CI")) +
+  geom_line(aes(y = lower_99, color = "99% CI")) +
+  geom_line(aes(y = upper_99, color = "99% CI")) +
+  scale_color_manual(values = c("80% CI" = "lightblue",
+                                "90% CI" = "blue",
+                                "95% CI" = "darkblue",
+                                "99% CI" = "black")) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5)) +
+  labs(title = "All periods and Confidence intervals (Normal Distribution)", x = "", y = "Prod. in Mio t")
+
+# create the graph for recent periods
+recent_periods_norm = ggplot(ci_norm[203:243,], aes(x = Period)) +
+  geom_line(aes(y = True_Value, color = "True value")) +
+  geom_line(aes(y = Prediction)) +
+  geom_line(aes(y = lower_80, color = "80% CI")) +
+  geom_line(aes(y = upper_80, color = "80% CI")) +
+  geom_line(aes(y = lower_90, color = "90% CI")) +
+  geom_line(aes(y = upper_90, color = "90% CI")) +
+  geom_line(aes(y = lower_95, color = "95% CI")) +
+  geom_line(aes(y = upper_95, color = "95% CI")) +
+  geom_line(aes(y = lower_99, color = "99% CI")) +
+  geom_line(aes(y = upper_99, color = "99% CI")) +
+  scale_color_manual(values = c("80% CI" = "lightblue",
+                                "90% CI" = "blue",
+                                "95% CI" = "darkblue",
+                                "99% CI" = "black")) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5)) +
+  labs(title = "Recent 50 periods and Confidence intervals (Normal Distribution)", x = "", y = "Prod. in Mio t")
+```
+
+**Forecasts with errors from Bootstrap**\
+
+```{r, message=FALSE, warning=FALSE}
+# the same procedure that was used for normal distribution will be used for bootstrap as well
+
+ci_bs = data.table("Period" = c(qcementTS$index, forecast(MAM2, h = 10)$index),
+                "True_Value" = c(qcementTS$value, rep(NA,10)),
+                "Prediction" = c(rep(NA, length(qcement)), forecast(MAM2, h = 10)$.mean),
+                "lower_80" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.bs, 1, quantile, probs=c(0.1, 0.90))))$V1),
+                "upper_80" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.bs, 1, quantile, probs=c(0.1, 0.90))))$V2),
+                "lower_90" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.bs, 1, quantile, probs=c(0.05, 0.95))))$V1),
+                "upper_90" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.bs, 1, quantile, probs=c(0.05, 0.95))))$V2),
+                "lower_95" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.bs, 1, quantile, probs=c(0.025, 0.975))))$V1),
+                "upper_95" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.bs, 1, quantile, probs=c(0.025, 0.975))))$V2),
+                "lower_99" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.bs, 1, quantile, probs=c(0.005, 0.995))))$V1),
+                "upper_99" = c(rep(NA, length(qcement)-1), transpose(data.table(apply(y.bs, 1, quantile, probs=c(0.005, 0.995))))$V2))
+
+head(ci_bs[,1:10])
+```
+
+```{r, message=FALSE, warning=FALSE}
+# graph for all periods
+all_periods_bs = ggplot(ci_bs, aes(x = Period)) +
+  geom_line(aes(y = True_Value, color = "True value")) +
+  geom_line(aes(y = Prediction)) +
+  geom_line(aes(y = lower_80, color = "80% CI")) +
+  geom_line(aes(y = upper_80, color = "80% CI")) +
+  geom_line(aes(y = lower_90, color = "90% CI")) +
+  geom_line(aes(y = upper_90, color = "90% CI")) +
+  geom_line(aes(y = lower_95, color = "95% CI")) +
+  geom_line(aes(y = upper_95, color = "95% CI")) +
+  geom_line(aes(y = lower_99, color = "99% CI")) +
+  geom_line(aes(y = upper_99, color = "99% CI")) +
+  scale_color_manual(values = c("80% CI" = "lightblue",
+                                "90% CI" = "blue",
+                                "95% CI" = "darkblue",
+                                "99% CI" = "black")) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5)) +
+  labs(title = "All periods and Confidence intervals (Bootstrap)", x = "", y = "Prod. in Mio t")
+
+# graph for recent periods
+recent_periods_bs = ggplot(ci_bs[203:243,], aes(x = Period)) +
+  geom_line(aes(y = True_Value, color = "True value")) +
+  geom_line(aes(y = Prediction)) +
+  geom_line(aes(y = lower_80, color = "80% CI")) +
+  geom_line(aes(y = upper_80, color = "80% CI")) +
+  geom_line(aes(y = lower_90, color = "90% CI")) +
+  geom_line(aes(y = upper_90, color = "90% CI")) +
+  geom_line(aes(y = lower_95, color = "95% CI")) +
+  geom_line(aes(y = upper_95, color = "95% CI")) +
+  geom_line(aes(y = lower_99, color = "99% CI")) +
+  geom_line(aes(y = upper_99, color = "99% CI")) +
+  scale_color_manual(values = c("80% CI" = "lightblue",
+                                "90% CI" = "blue",
+                                "95% CI" = "darkblue",
+                                "99% CI" = "black")) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5)) +
+  labs(title = "Recent 50 periods and Confidence intervals (Bootstrap)", x = "", y = "Prod. in Mio t")
+```
+
+The previously created graphs are presented in the following.
+
+```{r, message=FALSE, warning=FALSE, class.source = "fold-show"}
+# show the plots for all periods
+grid.arrange(all_periods_norm, all_periods_bs)
+```
+
+To get a better insight for the most recent periods, those graphs will be shown below.
+```{r, message=FALSE, warning=FALSE, class.source = "fold-show"}
+# show the plots for the 50 most recent periods
+grid.arrange(recent_periods_norm, recent_periods_bs)
+```
+\
+Both methods referring to the selection of the error term produce comparable results in terms of prediction intervals.
+
+## References
+
+### Web sources
+
+(1): http://www.sthda.com/english/wiki/normality-test-in-r, accessed 08.04.2023, 02:57.
+
+### Packages
+
+  Revelle, W. (2022) psych: Procedures for Personality and
+  Psychological Research, Northwestern University, Evanston,
+  Illinois, USA, https://CRAN.R-project.org/package=psych Version =
+  2.2.9.
+  
+  H. Wickham. ggplot2: Elegant Graphics for Data Analysis.
+  Springer-Verlag New York, 2016.
+  
+  Dowle M, Srinivasan A (2021). _data.table: Extension of
+  `data.frame`_. R package version 1.14.2,
+  <https://CRAN.R-project.org/package=data.table>.
+  
+  Wang, E, D Cook, and RJ Hyndman (2020). A new tidy data structure
+  to support exploration and modeling of temporal data, Journal of
+  Computational and Graphical Statistics, 29:3, 466-478,
+  doi:10.1080/10618600.2019.1695624.
+  
+  Hyndman R (2023). _fpp2: Data for "Forecasting: Principles and
+  Practice" (2nd Edition)_. R package version 2.5,
+  <https://CRAN.R-project.org/package=fpp2>.
+  
+  Hyndman R (2023). _fpp3: Data for "Forecasting: Principles and
+  Practice" (3rd Edition)_. R package version 0.5,
+  <https://CRAN.R-project.org/package=fpp3>.
+
+  Wickham H, François R, Henry L, Müller K (2022). _dplyr: A Grammar
+  of Data Manipulation_. R package version 1.0.10,
+  <https://CRAN.R-project.org/package=dplyr>.
+  
+  Hamner B, Frasco M (2018). _Metrics: Evaluation Metrics for
+  Machine Learning_. R package version 0.1.4,
+  <https://CRAN.R-project.org/package=Metrics>.
+
+  Mangiafico S (2023). _rcompanion: Functions to Support Extension
+  Education Program Evaluation_. R package version 2.4.21,
+  <https://CRAN.R-project.org/package=rcompanion>.
+
+  Cameron A, van den Brand T (2022). _geomtextpath: Curved Text in
+  'ggplot2'_. R package version 0.1.1,
+  <https://CRAN.R-project.org/package=geomtextpath>.
+
+  Yihui Xie (2022). knitr: A General-Purpose Package for Dynamic
+  Report Generation in R. R package version 1.40.
+
+  Yihui Xie (2015) Dynamic Documents with R and knitr. 2nd edition.
+  Chapman and Hall/CRC. ISBN 978-1498716963
+
+  Yihui Xie (2014) knitr: A Comprehensive Tool for Reproducible
+  Research in R. In Victoria Stodden, Friedrich Leisch and Roger D.
+  Peng, editors, Implementing Reproducible Computational Research.
+  Chapman and Hall/CRC. ISBN 978-1466561595
+
+  Achim Zeileis and Gabor Grothendieck (2005). zoo: S3
+  Infrastructure for Regular and Irregular Time Series. Journal of
+  Statistical Software, 14(6), 1-27. doi:10.18637/jss.v014.i06
+
+## Appendix
+
+
+#### Other values for window size of the trend
+
+**Too flexible trend (1)** \
+window for trend = 7\
+```{r, message=FALSE, warning=FALSE}
+stl_model = stl(qcementTS, s.window = 9, t.window = 7)
+autoplot(stl_model, ts.colour = 'blue') + theme_bw()
+```
+
+**Too flexible trend (2)**\
+window for trend = 9\
+```{r, message=FALSE, warning=FALSE}
+stl_model = stl(qcementTS, s.window = 9, t.window = 9)
+autoplot(stl_model, ts.colour = 'blue') + theme_bw()
+```
+
+**Too much structure in the random component (1)**\
+window for trend = 15\
+```{r, message=FALSE, warning=FALSE}
+stl_model = stl(qcementTS, s.window = 9, t.window = 15)
+autoplot(stl_model, ts.colour = 'blue') + theme_bw()
+```
+
+**Too much structure in the random component (2)**\
+window for trend = 21\
+```{r, message=FALSE, warning=FALSE}
+stl_model = stl(qcementTS, s.window = 9, t.window = 21)
+autoplot(stl_model, ts.colour = 'blue') + theme_bw()
+```

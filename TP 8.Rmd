@@ -1,0 +1,218 @@
+---
+title: "TP 8"
+author: "Hannes Guth"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(fpp3)
+library(forecast)
+library(data.table)
+```
+
+# {.tabset}
+
+## 1.
+
+**Produce an STL decomposition of the data and describe the trend and seasonality**
+
+```{r, message=FALSE, warning=FALSE}
+setwd("D:/Dokumente/Studium/Master/Université de Genève/Kurse/Forecasting with Business Applications/TP8")
+
+# select the sector "Construction"
+data = us_employment %>% 
+  filter(Title == "Construction")
+
+# create the STL model
+STL_dec = data %>%
+  model(stl = STL(Employed))
+
+# extract the components and plot them
+components(STL_dec)
+components(STL_dec) %>% as_tsibble() %>% autoplot(Employed) + theme_bw() +
+  labs(title = "Employment in the Construction sector 1939 - 2019")
+
+# plot only selected parts to see the seasonality cleary
+data_sub = data[50:150,]
+STL_dec = data_sub %>%
+  model(stl = STL(Employed))
+components(STL_dec) %>% as_tsibble() %>% autoplot(Employed) + theme_bw() + labs(title = "Selected timeframe to see seasonality")
+
+data_sub = data[250:350,]
+STL_dec = data_sub %>%
+  model(stl = STL(Employed))
+components(STL_dec) %>% as_tsibble() %>% autoplot(Employed) + theme_bw() + labs(title = "Selected timeframe to see seasonality")
+```
+\
+There is an overall positive trend with several decreases like during World War 2, the mid 1970s, the mid 1980s and the 3 years before 2010 (related to the financial crisis that emerged from the US from the housing and banking industry) and there is as well seasonality. Usually, a minimum is reached in or shortly after January while the peak is in summer, what makes sense for construction workers.
+\
+
+## 2.
+
+**Do the data need transforming? If so, find a suitable transformation**
+```{r, message=FALSE, warning=FALSE}
+# retrieve the lambda
+lambda = data %>% features(Employed, guerrero) %>% pull(lambda_guerrero)
+lambda
+```
+The lambda is not 0, so the data need transformation.
+
+```{r, message=FALSE, warning=FALSE}
+# plot the data
+data %>% autoplot(box_cox(Employed, lambda)) + theme_bw() + labs(title = "Transformed data", y = "Employed")
+```
+\
+
+## 3.
+
+**Are the data stationary? If not, find an appropriate differencing which yields stationary data.**
+
+```{r, message=FALSE, warning=FALSE}
+# plot the data again for this page
+data %>% autoplot(box_cox(Employed, lambda)) + theme_bw() + labs(title = "Transformed data", y = "Employed")
+```
+
+The data are not stationary and require further transformation. The lag is set to 12 for annual seasonality and no differentiation will be done in this step.
+
+```{r, message=FALSE, warning=FALSE}
+# execute the box-cox transformation
+data$BC_transformed = box_cox(data$Employed, lambda)
+
+# plot the residual graph summaries without differencing
+data %>% gg_tsdisplay(BC_transformed |> 
+                           difference(lag=12),
+                           plot_type = "partial")
+```
+\
+From the acf plot, one can see that the data is not yet stationary and needs further transformation, it will be differentiated once.
+
+```{r, message=FALSE, warning=FALSE}
+# plot the residual graph summaries with differencing once
+data %>% gg_tsdisplay(BC_transformed |> 
+                           difference(lag = 12) |> 
+                           difference(difference = 1), plot_type = "partial")
+```
+\
+The series appears stationary now.\
+
+## 4.
+
+**Identify several ARIMA models that might be useful in describing the time series. Which of your models is the best according to their AICc values?**
+
+```{r, message=FALSE, warning=FALSE}
+# plot the residual graph summaries with differencing once
+data %>% gg_tsdisplay(BC_transformed |> 
+                           difference(lag = 12) |> 
+                           difference(difference = 1), plot_type = "partial")
+```
+
+Applicable models are estimated as follows, according to the acf and pacf plot.
+```{r, message=FALSE, warning=FALSE}
+# fit different ARIMA models
+fit = data %>% 
+  model(
+    manual1 = ARIMA(box_cox(Employed, lambda) ~ 0 + pdq(4,1,0) + PDQ(0,1,1)),
+    manual2 = ARIMA(box_cox(Employed, lambda) ~ 0 + pdq(0,1,4) + PDQ(3,1,0)),
+    manual3 = ARIMA(box_cox(Employed, lambda) ~ 1 + pdq(4,1,0) + PDQ(0,1,1)),
+    manual4 = ARIMA(box_cox(Employed, lambda) ~ 1 + pdq(0,1,4) + PDQ(3,1,0)),
+    auto = ARIMA(box_cox(Employed, lambda))
+  )
+# give the summary of the models
+glance(fit)
+```
+\
+The model with the smallest AIC (and AICc) is the automatically chosen model. Only the first manual model comes close to same value.
+
+## 5.
+
+**Estimate the parameters of your best model and do diagnostic testing on the residuals. Do the residuals resemble white noise? If not, try to find another ARIMA model which fits better.**
+
+
+```{r, message=FALSE, warning=FALSE}
+fit %>% select(auto) %>% gg_tsresiduals()
+```
+\
+There is no visible pattern in the innovation residuals plots, a slight wave-form pattern in th acf plot and they follow approximately a normal distribution. They can be considered as white noise.
+
+
+## 6.
+
+**Forecast the next 3 years of data. Get the latest figures to check the accuracy of your forecasts.**
+
+```{r, message=FALSE, warning=FALSE}
+# get the new data
+cont = fread("continuation.csv")
+# change the column names
+colnames(cont) = c("Date","True")
+# create the forecast
+forecast = fit %>% select(auto) %>% fabletools::forecast(h = "3 years")
+head(forecast)
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+# create the data needed for the plot
+Month = c(data$Month, forecast$Month)
+Employed = c(data$Employed, cont[(Date > max(data$Month) & Date < (max(data$Month)+37)),]$True)
+
+plotdata = tibble(
+  date = Month,
+  value = Employed
+)
+
+# plot the data
+fit %>% select(auto) %>% fabletools::forecast(h = "3 years")
+forecast %>% autoplot(plotdata) + theme_bw() + labs(title = "Historic employment and forecast")
+
+# calculate the RMSE as a measure for accuracy
+accuracydata = data.table("Prediction" = forecast$.mean,
+                          "True" = cont[(Date > max(data$Month) & Date < (max(data$Month)+37)),]$True)
+RMSE(accuracydata$Prediction, accuracydata$True)
+```
+The true values are to the most part in the confidence intervals and there is an overall RMSE of 274.481 which is not too large, compared to the actually predicted values.
+
+## 7.
+
+**Eventually, the prediction intervals are so wide that the forecasts are not particularly useful. How many years of forecasts do you think are sufficiently accurate to be usable?**
+
+```{r, message=FALSE, warning=FALSE}
+# show the forecast data only
+autoplot(forecast) + theme_bw() + labs(title = "Forecast")
+```
+\
+The forecast is still reasonably wide until approximately January 2021, so around 1.5 years. Afterwards, it becomes too large compared to the actual values.
+
+## References
+
+### Packages
+
+  Wickham H, François R, Henry L, Müller K (2022). _dplyr: A
+  Grammar of Data Manipulation_. R package version 1.0.10,
+  <https://CRAN.R-project.org/package=dplyr>.
+
+  Hyndman R (2023). _fpp3: Data for "Forecasting: Principles and
+  Practice" (3rd Edition)_. R package version 0.5,
+  <https://CRAN.R-project.org/package=fpp3>.
+
+  Hyndman R, Athanasopoulos G, Bergmeir C, Caceres G, Chhay L,
+  O'Hara-Wild M, Petropoulos F, Razbash S, Wang E, Yasmeen F
+  (2022). _forecast: Forecasting functions for time series and
+  linear models_. R package version 8.18,
+  <https://pkg.robjhyndman.com/forecast/>.
+
+  Hyndman RJ, Khandakar Y (2008). “Automatic time series
+  forecasting: the forecast package for R.” _Journal of
+  Statistical Software_, *26*(3), 1-22. doi:10.18637/jss.v027.i03
+  <https://doi.org/10.18637/jss.v027.i03>.
+
+  Dowle M, Srinivasan A (2021). _data.table: Extension of
+  `data.frame`_. R package version 1.14.2,
+  <https://CRAN.R-project.org/package=data.table>.
+
+

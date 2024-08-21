@@ -1,0 +1,336 @@
+---
+title: 'Task 4'
+author: "Hannes Guth"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(data.table) # package to use data in data tables
+library(fpp2) # package for the holt method
+library(fpp3) # package that includes the dataset
+library(Metrics) # package that contains the rmse-function
+library(ggplot2) # package to create plots
+```
+
+# {.tabset}
+
+## Belgium {.tabset}
+
+### 1.
+
+#### Plot the Exports series for selected country and discuss the main features of the data.
+
+```{r, message=FALSE, warning=FALSE}
+global_economy_dt = data.table(global_economy) # transform the data set into a data table
+belgium = global_economy_dt[Country == "Belgium",] # only select the obsevartions for Belgium
+
+ggplot(belgium, aes(x = Year, y = Exports, group = 1)) + # create a new ggplot with the data from Belgium, Year in the x-axis and the exports on the y-axis
+  geom_line() + # create a line chart
+  theme_bw() + # use the theme bw
+  labs(title = "Exports of Belgium 1960 - 2017", y = "Exports in % of GDP")
+```
+\
+The data exist from 1960 onwards. One cannot observe any seasonality or cycles but overall a positive, linear trend. The data represent the export in % of GDP. The minimum was in 1960 with approximately 37%-38% and the maximum was reached in 2017 with 85%.
+
+### 2.
+
+#### Use one of the viewed methods (simple exponential smoothing, Holt, Holt-Winter) which is appropriated to your series. Justify your choice. Comment on your model’s parameter(s). How well does your model fit the data?
+
+The Holt's method will be used in the following because of the observation stated in 1. There is no seasonality but an overall positive and linear trend.
+At first, the $\alpha$ will be set to 0.3 and the $\beta$ to 0.1. These are smoothing parameters and will be replaced later on by values that are closer to the optimum.
+$\alpha$ defines how the values (levels) of previous periods influence the forecast or rather how fast the weights of periods decrease that are longer ago. A high $\alpha$ refers to a short memory, so mainly recent periods influence the forecast and vice versa. The same principle applies for $\beta$ but $\beta$ refers to the trend instead of the level. At this stage, h is set to 1, meaning the the forecast is made for only 1 period.
+
+```{r, message=FALSE, warning=FALSE}
+first_model = holt(belgium$Exports, alpha = 0.3, beta = 0.3, initial = "optimal", h = 1) # run the first model with arbitrarily chosen values for the smoothing parameters and 1 period forecast
+
+# create new data table with the years, the true exports and the forecasted exports the first model
+rmse_table = data.table("Year" = belgium$Year,
+                       "True_Exports" = belgium$Exports,
+                       "Forecasted_Exports" = first_model$fitted)
+
+mean(rmse_table$True_Exports) # calculate the mean of the true exports
+rmse(rmse_table$True_Exports, rmse_table$Forecasted_Exports) # calculate the RMSE
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+ggplot(rmse_table, aes(x = Year), group = 1) + # create a new ggplot with the data from the rmse table and Year on the x-axis
+  geom_line(aes(y = True_Exports, color = "True Exports")) + # one line for the true exports
+  geom_line(aes(y = Forecasted_Exports, color = "Forecast")) + # one line for the forecast
+  labs(title = "True exports and forecasts, α = β = 0.3 ") + # set the labels
+  scale_color_manual(values = c("True Exports" = "black", "Forecast" = "green")) + # set the colors
+  theme(legend.title = element_blank()) # remove the legend title
+```
+\
+The graph shows that the forecast follows roughly the true exports, 1 period delayed.
+The RMSE is 4.1 what is 6.9% of the true export values' mean.
+
+### 3. {.tabset}
+
+##### Run model with different values of the parameter(s). Plot it against parameter(s) values. How each parameter does impact the forecast?
+
+#### Different parameters
+
+##### Influence of the parameters $\alpha$ and $\beta$ on the model
+Following the equations, the Forecast is the sum of the previous level and the previous trend. $\alpha$ has a positive impact on the forecast, given a fixed $y_t$ and no effect on the trend. $\beta$ positively enhances the effect of the difference of the level of current period and the level of the previous period, the current trend and negatively influences the effect of the previous trend.
+
+##### Plotting different combinations of paramters
+To improve the result from 2., one can try to vary the smoothing parameters $\alpha$ and $\beta$. In the following, a sequence of graphs will be created that show the forecast against the true value and give information about the corresponding smoothing parameters and achieved RMSE. The $\alpha$ value will be varied on the left side and the $\beta$ value on the right side.
+
+The best combination of the smoothing parameters in the these cases was $\alpha$ = 0.8 and $\beta$ = 0.2 what led to an RMSE of 3.42 what is better than the arbitrarily chosen parameters. To enhance the result further, another approach will be followed, testing the performance of roughly 5,000 combinations of $\alpha$ and $\beta$, setting values in steps of 0.01 for both parameters with $\alpha$ >= $\beta$ and both < 1 what would result in computational errors otherwise.
+
+
+```{r, message=FALSE, warning=FALSE, out.width="80%", fig.height=15, results='hide'}
+par(mfrow=c(4,2)) # set the arrangement of the plots
+for (i in seq(0.20, 0.90, 0.15)){ # set the sequence that shall be executed to vary the smoothing parameters
+  for (j in 1:2){ # to arrange the plots in two "columns"
+    if (j == 1){ # in the first column
+      current_model = holt(belgium$Exports, alpha = i, beta = 0.2, initial = "optimal", h = 1) # create a Holt's model with varying alpha and fixed beta
+      current_rmse = rmse(rmse_table$True_Exports, current_model$fitted) # calculate the RMSE of the model
+      plot(current_model, main = print(paste("α =", i, ", β =",0.2, ", current RMSE:", round(current_rmse, 2))), PI = FALSE, xaxt='n', ylab = "Export in % of GDP") # plot the corresponding graph with the true values
+      axis(1, at=1:58, labels= belgium$Year, tck = 0) # edit the axis labels
+      lines(fitted(current_model), lwd=2, col="green") # add the line with the prediction in green
+    }
+    if (j == 2){ # as above but now with a varying beta that shall not be bigger than alpha
+      current_model = holt(belgium$Exports, alpha = 0.5, beta = i/2, initial = "optimal", h = 1)
+      current_rmse = rmse(rmse_table$True_Exports, current_model$fitted)
+      plot(current_model, main = print(paste("α =", 0.5, ", β =", i/2, ", current RMSE:", round(current_rmse, 2))), PI = FALSE, xaxt='n', ylab = "Export in % of GDP")
+      axis(1, at=1:58, labels= belgium$Year, tck = 0) # edit the axis labels
+      lines(fitted(current_model), lwd=2, col="green") # add the line with the prediction in green
+    }
+  }
+}
+```
+
+#### Best parameter combination
+
+In this abstract, the optimal parameter combination will be searched.
+
+```{r, message=FALSE, warning=FALSE, out.width="80%"}
+# create a new data table to store year, the true export value and the forecast value of the respectively current model that will be calculated during this approach
+current_table = data.table("Year" = belgium$Year,
+                       "True_Exports" = belgium$Exports,
+                       "Forecasted_Exports" = 0)
+
+# create a new data table to store the values of the RSME and the corresponding parameters
+parameters_table = data.table("alpha" = numeric(4950),
+                              "beta" = numeric(4950),
+                              "RMSE" = numeric(4950),
+                              "forecast" = numeric(4950))
+
+# set the values for the parameters and the best RMSE to initial values which will be overwritten during the approach
+a = 0
+b = 0
+best_rmse = 100
+counter = 0
+
+for (i in 1:100){ # create a loop for the alphas
+  for (j in 1:100){ # create a loop for the betas
+    a = i/100 # calculate the current alpha
+    b = j/100 # calculate the current beta
+    if (a >= b & a < 1){ # if alpha >= beta and alpha < 0 (otherwise errors will be given)
+      current_model = holt(belgium$Exports, alpha = a, beta = b, initial = "optimal", h = 1) # create a current model with the respective current parameters
+      # fill the parameters table with the data about the parameters and the resulting RMSE
+      counter = counter + 1
+      parameters_table[counter, 1] = as.double(a)
+      parameters_table[counter, 2] = as.double(b)
+      parameters_table[counter, 3] = as.double(rmse(current_table$True_Exports, current_table$Forecasted_Exports))
+      #z[i,j] = as.double(rmse(current_table$True_Exports, current_table$Forecasted_Exports))
+      current_table$Forecasted_Exports = current_model$fitted # update the forecasts in the current table
+      if (rmse(current_table$True_Exports, current_table$Forecasted_Exports) < best_rmse){ # if a better RMSE could have been achieved
+        best_rmse = rmse(current_table$True_Exports, current_table$Forecasted_Exports) # set this RMSE as the new best RMSE
+        best_a = a # update the currently best alpha
+        best_b = b # update the currently best beta
+      }
+    }
+  }
+}
+
+# show the finally retrieved best values for the RMSE and the smoothing parameters
+best_rmse
+best_a
+best_b
+```
+\
+The result could be improved. The best RMSE of 3.097 is achieved by $\alpha$ = 0.73 and $\beta$ = 0.01. This is an improvement of 18.4% compared to the randomly chosen parameters from the first model.
+
+### 4.
+
+#### Provide forecast for 5 steps ahead. Does your prediction look good? Please, explain.
+
+To enlarge the prediction to 5 periods, h has to be changed to 5. All other parameters stay the same. The previously obtained "optimal" values for $\alpha$ and $\beta$ will be kept.
+
+```{r, message=FALSE, warning=FALSE, out.width="80%"}
+five_step_model = holt(belgium$Exports, alpha = best_a, beta = best_b, initial = "optimal", h = 5) # use the holt function to obtain a model that forecasts 5 periods
+rmse_table$Forecasted_Exports = five_step_model$fitted # update the RMSE-table
+
+plot(five_step_model, xaxt = "n", ylab = "Exports in % of GDP") # show the model with the 5 periods forecast
+axis(1, at=1:58, labels = belgium$Year, tck = 0) # edit the axis labels
+```
+
+The forecast for the next 5 periods reflects the previously positive trend since the blue line has a positive slope. From the confidence interval in greyscale, one can see that there is rising uncertainty the further one goes into the future. This interval seems to be reasonable from looking at the data.
+
+## Bonus task: Cameroon {.tabset}
+
+### 1.
+
+#### Plot the Exports series for selected country and discuss the main features of the data.
+
+```{r, message=FALSE, warning=FALSE}
+global_economy_dt = data.table(global_economy) # transform the data set into a data table
+cameroon = global_economy_dt[Country == "Cameroon",] # only select the observations for Cameroon
+cameroon = cameroon[6:58,] # remove NAs
+
+ggplot(cameroon, aes(x = Year, y = Exports, group = 1)) + # create a new ggplot with the data from Cameroon, Year in the x-axis and the exports on the y-axis
+  geom_line() + # create a line chart
+  theme_bw() + # use the theme bw
+  labs(title = "Exports of cameroon 1966 - 2017") # edit the title
+```
+\
+The data exist from 1966 onwards and represent exports as a share of GDP. One can observe neither seasonalities or cycles nor a trend. The maximum was reached in during the mid 1980s with approximately 37% and the minimum 1993 with less than 15%.
+
+### 2.
+
+#### Use one of the viewed methods (simple exponential smoothing, Holt, Holt-Winter) which is appropriate to your series. Justify your choice. Comment on your model’s parameter(s). How well does your model fit the data?
+
+The method that seems to be appropriate here is the SES method because of the absence of a clear trend and seasonality.
+
+```{r, message=FALSE, warning=FALSE}
+first_model = ses(cameroon$Exports, alpha = 0.3, initial = "simple", h = 1) # run the first model with an arbitrarily chosen value for alpha and 1 period forecast
+
+# create new data table with the years, the true exports and the forecasted exports the first model
+rmse_table = data.table("Year" = cameroon$Year,
+                       "True_Exports" = cameroon$Exports,
+                       "Forecasted_Exports" = first_model$fitted)
+
+mean(rmse_table$True_Exports) # calculate the mean
+rmse(rmse_table$True_Exports, rmse_table$Forecasted_Exports) # calculate the RMSE
+```
+
+```{r, message=FALSE, warning=FALSE}
+ggplot(rmse_table, aes(x = Year), group = 1) + # create a new ggplot with the data from the rmse table and Year on the x-axis
+  geom_line(aes(y = True_Exports, color = "True Exports")) + # one line for the true exports
+  geom_line(aes(y = Forecasted_Exports, color = "Forecast")) + # one line for the forecast
+  labs(title = "True exports and forecasts, α = 0.3 ") + # set the labels
+  scale_color_manual(values = c("True Exports" = "black", "Forecast" = "green")) + # set the colors
+  theme(legend.title = element_blank()) # remove the legend title
+```
+\
+The graph shows that the forecast follows roughly the true exports, 1 period delayed.
+The RMSE is 3.86 what is roughly 15% of the true export values. This error is bigger than the one which was observed with the Holt model for the Belgium.
+
+### 3. {.tabset}
+
+##### Run model with different values of the parameter(s). Plot it against parameter(s) values. How each parameter does impact the forecast?
+
+#### Different parameters
+
+##### Influence of $\alpha$
+The higher $\alpha$ becomes, the more flexible the function becomes. In the first graph, there is nearly a straight line and an $\alpha$ = 0.01. In the last graphs when $\alpha$ is more than 0.7, the forecast closely follows the true exports and the RMSE becomes smaller.
+The bigger $\alpha$ and $\beta$, both, the more flexible the function will appear because it gives more weight to only the previous observation and less weight to all other observation before.
+
+##### Plotting for different values of $\alpha$
+
+In the following, different graphs for different $\alpha$s will be printed to show the effect of $\alpha$ on the forecast.
+
+```{r, message=FALSE, warning=FALSE, out.width="80%", fig.height=15, results='hide'}
+par(mfrow=c(4,2)) # set the arrangement of the plots
+for (i in seq(0.01, 0.99, 0.1)){ # set the sequence that shall be executed to vary the smoothing parameter
+      current_model = ses(cameroon$Exports, alpha = i, initial = "simple", h = 1) # create an SES model with varying alpha and fixed beta
+      current_rmse = rmse(rmse_table$True_Exports, current_model$fitted) # calculate the RMSE of the model
+      plot(current_model, main = print(paste("α =", i, ", current RMSE:", round(current_rmse, 2))), PI = FALSE, xaxt = 'n', ylab = "Export in % of GDP") # plot the corresponding graph with the true values
+      axis(1, at = 1:53, labels = cameroon$Year, tck = 0) # edit the axis labels
+      lines(fitted(current_model), lwd = 2, col="green") # add the line with the prediction in green
+}
+```
+
+#### Best parameter combination
+
+In this abstract, the optimal $\alpha$ will be searched.
+
+```{r, message=FALSE, warning=FALSE, out.width="80%"}
+# create a new data table to store year, the true export value and the forecast value of the respectively current model that will be calculated during this approach
+current_table = data.table("Year" = cameroon$Year,
+                       "True_Exports" = cameroon$Exports,
+                       "Forecasted_Exports" = 0)
+
+parameters_table = data.table("alpha" = numeric(4950),
+                              "RMSE" = numeric(4950),
+                              "forecast" = numeric(4950))
+
+# set the values for the parameters and the best RMSE to initial values which will be overwritten during the approach
+a = 0
+best_rmse = 100
+counter = 0
+
+for (i in 1:100){ # create a loop for the alphas
+  a = i/100 # calculate the current alpha
+  current_model = ses(cameroon$Exports, alpha = a, initial = "simple", h = 1) # create a current model with the respective current alpha
+  # fill the parameters table with the data about the parameters and the resulting RMSE
+  counter = counter + 1
+  parameters_table[counter, 1] = as.double(a)
+  parameters_table[counter, 2] = as.double(rmse(current_table$True_Exports, current_table$Forecasted_Exports))
+  current_table$Forecasted_Exports = current_model$fitted # update the forecasts in the current table
+  if (rmse(current_table$True_Exports, current_table$Forecasted_Exports) < best_rmse){ # if a better RMSE could have been achieved
+    best_rmse = rmse(current_table$True_Exports, current_table$Forecasted_Exports) # set this RMSE as the new best RMSE
+    best_a = a # update the currently best alpha
+  }
+}
+
+# show the finally retrieved best values for the RMSE and the smoothing parameters
+best_rmse
+best_a
+```
+\
+The optimal $\alpha$ is 0.72 and that leads to an RMSE of 3.67, what is slightly better than the one with the arbitrarily chosen $\alpha$.
+
+### 4.
+
+#### Provide forecast for 5 steps ahead. Does your prediction look good? Please, explain.
+
+To enlarge the prediction to 5 periods, h has to be changed to 5. All other parameters stay the same. The previously obtained "optimal" value for $\alpha$ will be kept.
+
+```{r, message=FALSE, warning=FALSE, out.width="80%"}
+five_step_model = ses(cameroon$Exports, alpha = best_a, initial = "simple", h = 5) # use the ses function to obtain a model that forecasts 5 periods
+rmse_table$Forecasted_Exports = five_step_model$fitted # update the RMSE-table
+
+plot(five_step_model, xaxt = 'n', xlab = "Year", ylab = "Export in % of GDP") # show the model with the 5 periods forecast
+plot(five_step_model, xaxt = "n", ylab = "Exports in % of GDP") # show the model with the 5 periods forecast
+axis(1, at=1:58, labels = belgium$Year, tck = 0) # edit the axis labels
+```
+\
+The forecast for the next 5 periods reflects that there is no trend since the blue line of the confidence interval is approximately horizontal. The confidence interval seems to be estimated too low because the majority of data lays above the blue line. Basically one single observation from the previous data would have fallen into the lowest 2.5% of the interval while there were a few which would have fallen in or even above the highest 2.5%.
+
+## References
+
+### Packages
+
+  Dowle M, Srinivasan A (2021). _data.table: Extension of `data.frame`_. R package version 1.14.2,
+  <https://CRAN.R-project.org/package=data.table>.
+  
+  Hyndman R (2023). _fpp2: Data for "Forecasting: Principles and Practice" (2nd Edition)_. R package version
+  2.5, <https://CRAN.R-project.org/package=fpp2>.
+  
+  Hyndman R (2023). _fpp3: Data for "Forecasting: Principles and Practice" (3rd Edition)_. R package version
+  0.5, <https://CRAN.R-project.org/package=fpp3>.
+
+  Hamner B, Frasco M (2018). _Metrics: Evaluation Metrics for Machine Learning_. R package version 0.1.4,
+  <https://CRAN.R-project.org/package=Metrics>.
+
+  H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+
+
+
+
+
+
+
+
+
+
+

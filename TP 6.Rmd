@@ -1,0 +1,354 @@
+---
+title: "Exercise 4"
+author: "Hannes Guth"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Following packages will be used throughout the document.
+```{r, message=FALSE, warning=FALSE}
+library(fpp3) # package with the data set
+library(dplyr) # package to use the pipe operator
+library(data.table) # package to handle data tables
+library(Metrics) # package for the function rmse
+library(knitr) # package for creating tables with kable
+library(ggplot2) # package to create plots
+```
+
+# {.tabset}
+
+## Russian Federation {.tabset}
+
+### 1
+
+#### **Plot the data and comment on its features. What can you observe? To what political, economical or social event/s it can be linked?**
+
+At first, the data for the Russian Federation is taken from the global_economy dataset. The population will be taken to a scale of Mio and the data will be transformed to a tsibble.
+```{r, message=FALSE, warning=FALSE}
+# retrieve the data from the package and transform them
+rf = data.table(global_economy)
+rf = rf[Country %in% "Russian Federation",]
+rf$Population = rf$Population/1000000
+rf = as_tsibble(rf, index = Year)
+```
+
+The development of the population from 1960 to 2017 is presented below.
+
+```{r, message=FALSE, warning=FALSE}
+options(scipen = 999) # avoid scientific notation
+
+# plot the population data for the russian federation
+ggplot(rf) +
+  geom_line(aes(x = Year, y = Population)) +
+  labs(title = "Russian population 1960 - 2017",
+       x = "",
+       y = "Population in Mio") +
+  theme_bw()
+```
+\
+There is a population growth visible from 1960 (around 120 Mio) what is explainable by the time of peace and therefore a number of immigrants and births that exceeds the number of deaths. That changed for the first time since the war in 1994 (1), logically followed by a decrease in population during the next years. Another reason for that change in in the early 1990s is the collapse of the former soviet union (2). This decreasing trend has been stopped in the 2010s. Russia implemented several programs like anti-tobacco campaigns, rising the minimum age for buying alcohol in order to raise fertility rates and reduce death rates. (3) Nevertheless, the most likely reason for this change in negative development is expected to be the attraction of migrants. (3) That would explain the positive development since 2009. The lates number is about 145 Mio.
+
+### 2
+
+#### **Fit a linear trend model and compare this to a piecewise linear trend model with knots at 1993 and 2008.**
+
+```{r, message=FALSE, warning=FALSE}
+# create the model "fit"
+fit = rf %>% 
+  model(
+    linear = TSLM(Population ~ trend()), # create the linear model
+    piecewise = TSLM(Population ~ trend(knots = c(1993, 2008))) # create the piecewise model
+  )
+
+#plot the models
+rf %>% autoplot(Population) +
+  geom_line(data = fitted(fit), aes(y = .fitted, colour = .model)) + # retrieve the data from the fitted() - function
+  theme_bw() +
+  scale_color_manual(values = c("linear" = "red",
+                              "piecewise" = "blue")) +
+  labs(title = "Russian population 1960 - 2017",
+       x = "",
+       y = "Population in Mio") +
+  guides(level = "none") + # remove the legend for "level"
+  guides(colour = guide_legend(title = "Model")) # change the legend title for "colour"
+```
+\
+The linear model does not fit the data very well and just crosses the curve twice. The linear piecewise model consists of 3 parts which go from 1960 to to 1993, from 1993 to 2008 and from 2008 to 2017. It follows the data closely since the development is roughly linear in these intervals.
+
+In the following part, the RMSE will be calculated. It is expected to have a lower RMSE for the linear model because of what was mentioned above.
+```{r, message=FALSE, warning=TRUE}
+# gather the data regarding residuals in a data table 
+model_data = fitted(fit)
+comparison = data.table("Year" = model_data$Year[1:58],
+                        "True" = rf$Population[1:58],
+                        "Linear_model" = model_data$.fitted[1:58],
+                        "Piecewise" = model_data$.fitted[59:116])
+
+# calculate the actual residuals
+comparison$residualsL = comparison$True - comparison$Linear_model
+comparison$residualsP = comparison$True - comparison$Piecewise
+kable(head(comparison))
+```
+
+```{r, message=FALSE, warning=TRUE}
+# get the rmse-values of the both models
+rmse(comparison$True, comparison$Linear_model)
+rmse(comparison$True, comparison$Piecewise)
+```
+As expected, the RMSE of the linear model is much larger (4.85) than the one of the piecewise (0.56) model.
+
+The residuals are examined in the following.
+
+#### Residuals plot
+```{r, message=FALSE, warning=TRUE}
+# plot the residuals in an unaggregated form
+par(mfrow = c(1,2))
+
+plot(comparison$residualsL, main = "Linear model", ylab = "Magnitude", xlab = "", x = seq(as.Date("1960-01-01"), as.Date("2017-01-01"), by = "year"), las = 1, pch = 20)
+
+plot(comparison$residualsP, main = "Piecewise model", ylab = "Magnitude", xlab = "", x = seq(as.Date("1960-01-01"), as.Date("2017-01-01"), by = "year"), las = 1, pch = 20)
+```
+\
+A could have been expected from the previous analyses, the magnitude of residuals from the linear model is in general larger and has a clear structure, reaching a positive peak around 1990 and very low values at the very beginning and ending. For the piecewise model, it is apparent that residuals have higher absolute values at the very beginning and around the cut in 1993. During the time intervals, the residuals also show clear patterns but on a by far lower scale than the linear model without cuts.
+\
+
+#### Distribution of the residuals
+```{r, message=FALSE, warning=TRUE}
+# plot the distribution of the residuals
+par(mfrow = c(1,2))
+
+hist(comparison$residualsL, main = "Linear model", ylab = "Frequency", xlab = "", las = 1, pch = 20)
+
+hist(comparison$residualsP, main = "Piecewise model", ylab = "Frequency", xlab = "", las = 1, pch = 20)
+```
+\
+For both models, the residuals are not normally distributed. Nevertheless, the piecewise model has more residuals around 0.
+
+#### Autocorrelation of residuals
+```{r, message=FALSE, warning=TRUE}
+# plot the autocorrelation plots of the residuals
+par(mfrow = c(1,2))
+acf(comparison$residualsL, main = "Linear model")
+acf(comparison$residualsP, main = "Piecewise model")
+```
+\
+Both models show clear patterns in the residuals. The linear model's residuals are starting positively and are then nearly linearly decreasing into the negative. Fir the piecewise model, there is no linear pattern in the residuals but more a shape of a wave, starting in the positive, decreasing quickly into the negative and back to value mostly shortly below 0.
+
+#### **Final comment on the models**
+The piecewise linear model performs in all compared measures better than the linear model and is therefore to prefer from this point of view.
+
+### 3
+
+#### **Generate forecasts from these two models for the five years after the end of the data, and comment on the results.**
+
+```{r, message=FALSE, warning=FALSE}
+fc = fit %>% forecast(h = 5) # create the forecast for 5 periods
+
+# plot the data with the forecast
+rf %>% autoplot(Population) +
+  geom_line(data = fitted(fit), aes(y = .fitted, colour = .model)) +
+  autolayer(fc, alpha = 0.6, level = 95) + # add the prediction intervals of 95%
+  scale_color_manual(values = c("linear" = "red",
+                              "piecewise" = "blue")) +
+  theme_bw() +
+  labs(title = "Russian population 1960 - 2017",
+       x = "",
+       y = "Population in Mio") +
+  guides(level = "none")
+```
+\
+The 95% interval for the 5 periods prediction of the linear model is much broader than it is for the piecewise linear model. This is the case because the linear model takes into account the fluctuation of the whole period while the piecewise linear model only considers the fluctuation around the last interval for which it was fitted (which is approximately linear).
+Both models predict a positive development with a similar slope.
+
+
+## Spain {.tabset}
+
+### 1
+
+#### **Plot the data and comment on its features. What can you observe? To what political, economical or social event/s it can be linked?**
+
+```{r, message=FALSE, warning=FALSE}
+# retrieve the data from the package and transform them 
+sp = data.table(global_economy)
+sp = sp[Country %in% "Spain",]
+sp$Population = sp$Population/1000000
+sp = as_tsibble(sp, index = Year)
+```
+
+```{r, message=FALSE, warning=FALSE}
+options(scipen = 999)
+
+# plot the data
+ggplot(sp) +
+  geom_line(aes(x = Year, y = Population)) +
+  labs(title = "Population of Spain 1960 - 2017",
+       x = "",
+       y = "Population in Mio") +
+  theme_bw()
+```
+\
+Overall, there is a positive development in the Spanish population. The increase was approximately linear from 1960 (around 30 Mio) until 1980. In 1977, contraceptives were legalized what weakens the increase and in 1985, abortion was legalized what led to a roughly constant population in 1990. (4) The increase gets positive again in the years after it because of illegal immigration from Africa from 1988 on. (4) The increase got steeper from 2001 on when family taxation was improved for large families (5). This positive development was weakened by the legalization of elective abortion in 2010. (4) This development was increased by withdrawing a financial benefit of 2,500€ for births in 2011. (4) The trend turned negative in 2015 as a result of the aging of the Spanish population. The latest number is about 47 Mio.
+
+### 2
+
+#### **Fit a linear trend model and compare this to a piecewise linear trend model with knots at 1993 and 2008.**
+
+```{r, message=FALSE, warning=FALSE}
+# fit the model
+fit = sp %>% 
+  model(
+    linear = TSLM(Population ~ trend()), # fit the linear model
+    piecewise = TSLM(Population ~ trend(knots = c(1981, 2001, 2010))) # fit the piecewise model
+  )
+
+# plot the data using autoplot()
+sp %>% autoplot(Population) +
+  geom_line(data = fitted(fit), aes(y = .fitted, colour = .model)) +
+  theme_bw() +
+  scale_color_manual(values = c("linear" = "red",
+                                "piecewise" = "blue")) +
+  labs(title = "Population of Spain 1960 - 2017",
+       x = "",
+       y = "Population in Mio") +
+  guides(level = "none") +
+  guides(colour = guide_legend(title = "Model"))
+    
+```
+
+```{r, message=FALSE, warning=TRUE}
+# gather the data in the data table
+model_data = fitted(fit)
+comparison = data.table("Year" = model_data$Year[1:58],
+                        "True" = sp$Population[1:58],
+                        "Linear_model" = model_data$.fitted[1:58],
+                        "Piecewise" = model_data$.fitted[59:116])
+comparison$residualsL = comparison$True - comparison$Linear_model
+comparison$residualsP = comparison$True - comparison$Piecewise
+kable(head(comparison))
+```
+
+```{r, message=FALSE, warning=TRUE}
+# calculate the rmse of both models
+rmse(comparison$True, comparison$Linear_model)
+rmse(comparison$True, comparison$Piecewise)
+```
+\
+As for the Russian Federation population development, the the RMSE for the linear model is much bigger than the one for the piecewise model but both are lower than in the previous example. This is due to the fact that the trend is overall more linear and 3 instead of 2 nodes were put.
+
+#### Residuals plot
+```{r, message=FALSE, warning=TRUE}
+# plot the residuals of the two model for the population development for Spain
+par(mfrow = c(1,2))
+
+plot(comparison$residualsL, main = "Linear model", ylab = "Magnitude", xlab = "", x = seq(as.Date("1960-01-01"), as.Date("2017-01-01"), by = "year"), las = 1, pch = 20)
+
+plot(comparison$residualsP, main = "Piecewise model", ylab = "Magnitude", xlab = "", x = seq(as.Date("1960-01-01"), as.Date("2017-01-01"), by = "year"), las = 1, pch = 20)
+```
+\
+In the graph for the linear model's residuals there is a clear pattern visible. For the piecewise model, there is also a pattern but not as strong as for the linear model.
+
+#### Distribution of the residuals
+```{r, message=FALSE, warning=TRUE}
+# plot the distribution of the residuals
+par(mfrow = c(1,2))
+
+hist(comparison$residualsL, main = "Linear model", ylab = "Frequency", xlab = "", las = 1, pch = 20)
+
+hist(comparison$residualsP, main = "Piecewise model", ylab = "Frequency", xlab = "", las = 1, pch = 20)
+```
+\
+Compared to the models for the Russian Federation, the residuals for these models are much closer to a normal distribution even though it can not be considered to be a perfect normal distribution, especially regarding the skewness and lack of central values slightly above 0 for the linear model and the tails in the residuals from the piecewise model.
+
+#### Autocorrelation of residuals
+```{r, message=FALSE, warning=TRUE}
+# visualize the autocorrelations produced by the models
+par(mfrow = c(1,2))
+acf(comparison$residualsL, main = "Linear model")
+acf(comparison$residualsP, main = "Piecewise model")
+```
+\
+For both models, one can see a strong structure in a kind of sinus form. This is even more dominant for the linear model.
+
+### 3
+
+#### **Generate forecasts from these two models for the five years after the end of the data, and comment on the results.**
+
+```{r, message=FALSE, warning=FALSE}
+trend = fit %>% forecast(h = 5) # calculate the forecast for 5 periods
+
+# plot the data with the forecasting intervals
+sp %>% autoplot(Population) +
+  geom_line(data = fitted(fit), aes(y = .fitted, colour = .model)) +
+  autolayer(trend, alpha = 0.6, level = 95) + # add the forecasting intervals
+  scale_color_manual(values = c("linear" = "red",
+                              "piecewise" = "blue")) +
+  theme_bw() +
+  labs(title = "Population of Spain 1960 - 2017",
+       x = "",
+       y = "Population in Mio") +
+  guides(level = "none")
+```
+\
+The prediction interval for the linear model is again much larger than the one for the piecewise model for the reasons mentioned in 3. for the Russian Federation forecasts. It is remarkable that the piecewise model predicts a negative development while the linear models predicts a positive development.
+
+## References
+
+#### Websites
+
+(1) https://www.rand.org/pubs/issue_papers/IP162.html, accessed 21.04.2023, 08:37.
+
+(2) https://www.theguardian.com/world/2021/oct/13/russias-population-undergoes-largest-ever-peacetime-decline, accessed 21.04.2023, 08:51.
+
+(3) https://www.rferl.org/a/migrants-welcome-is-russia-trying-to-solve-its-demographic-crisis-by-attracting-foreigners-/30677952.html, accessed 21.04.2023, 09:07.
+
+(4) https://www.wikiwand.com/en/Demographics_of_Spain, accessed: 21.04.2022, 11:57.
+
+(5) https://www.oecd-ilibrary.org/sites/a3b2873d-en/index.html?itemId=/content/component/a3b2873d-en, accessed 21.04.2023, 11:57.
+
+\
+\
+\
+
+#### Packages
+
+  Hyndman R (2023). _fpp3: Data for "Forecasting: Principles
+  and Practice" (3rd Edition)_. R package version 0.5,
+  <https://CRAN.R-project.org/package=fpp3>.
+
+  Wickham H, François R, Henry L, Müller K (2022). _dplyr: A
+  Grammar of Data Manipulation_. R package version 1.0.10,
+  <https://CRAN.R-project.org/package=dplyr>.
+  
+  Dowle M, Srinivasan A (2021). _data.table: Extension of
+  `data.frame`_. R package version 1.14.2,
+  <https://CRAN.R-project.org/package=data.table>.
+  
+  Hamner B, Frasco M (2018). _Metrics: Evaluation Metrics for
+  Machine Learning_. R package version 0.1.4,
+  <https://CRAN.R-project.org/package=Metrics>.
+  
+  Yihui Xie (2022). knitr: A General-Purpose Package for
+  Dynamic Report Generation in R. R package version 1.40.
+
+  Yihui Xie (2015) Dynamic Documents with R and knitr. 2nd
+  edition. Chapman and Hall/CRC. ISBN 978-1498716963
+
+  Yihui Xie (2014) knitr: A Comprehensive Tool for
+  Reproducible Research in R. In Victoria Stodden, Friedrich
+  Leisch and Roger D. Peng, editors, Implementing Reproducible
+  Computational Research. Chapman and Hall/CRC. ISBN
+  978-1466561595
+  
+  H. Wickham. ggplot2: Elegant Graphics for Data Analysis.
+  Springer-Verlag New York, 2016.
+
+
+
+
+
+
+

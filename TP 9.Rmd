@@ -1,0 +1,479 @@
+---
+title: "TP9"
+author: "Hannes Guth"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(data.table)
+library(dplyr)
+library(fpp3)
+library(knitr)
+```
+
+# {.tabset}
+
+## Nr. 2 {.tabset}
+**Explain the bootstrap procedures seen in class, after introducing the context in which they are used. Provide an example of a bootstrap procedure used to calculate prediction intervals using an ETS model with seasonality**
+
+### Part 1
+**Explain the bootstrap procedures seen in class, after introducing the context in which they are used.**\
+
+**Bootstrapping General**\
+Bootstrapping is a statistical re-sampling method that can be applied in various cases. It is especially comfortable to use because it is applicable in nearly all situations because of its few assumptions and requirements and its easiness. The general objective is to calculate or estimate a statistical measure like variance, mean or median of a size and to get an idea of the distribution of this size. That, in turn will allow to state that in e.g. 95% of the cases, that this size will be included in a special confidence interval. More detailed information can be found under "How does it work?".
+
+**When is it applied?**\
+As indicated, it can be applied in nearly every occasion. Typically, Bootstrapping is used when it is e.g. not possible or too expensive to use other methods. This can be the case when the use of other methods requires special assumptions that are possibly (or for sure) not met. The classical example here is the normality assumption of e.g. residuals. It can also be too expensive to execute more experiments. An example here could be the measurement of the resistance of a steel beam when testing how much lateral force it can absorb until it breaks. Steel beams can be of high costs and therefore it would be very expensive to break 1,000 of them to get an idea of the distribution of absorbable lateral force. One can use Bootstrap in this case and still get a relatively robust estimate of that force even when having a relatively small number of samples.
+
+**How does it work?**\
+The typical approach of Bootstrap is to re-sample a given small sample, since it is a re-sampling method, as indicated above. One wants to infer the distribution of a size and related insights from a small sample on a bigger population. It is conducted as follows.\
+An "empty sample" of the same size of the original, small sample is created. One randomly picks an observation from the original sample and inserts it into the new sample. The original sample remains unchanged, this means, the selected observation is drawn with replacement. Therefore, it can be that one observation can be drawn several times. This process is repeated until the new sample is completely filled with observations. Hence, the same observation can appear more than once in the new sample. As soon as the new sample is completed, the statistic, e.g. mean can be calculated for this sample and its value is stored. These steps (filling an empty sample and calculating and storing the statistic of it) are repeated very often, like 10,000 times. Putting these 10,000 values of the measured statistic together, gives a relatively accurate distribution of it which is then applicable for a bigger population. Confidence intervals can be calculated on it and the distribution can be graphically presented and tests for example for curtosis can be conducted as well.
+
+\
+**Bootstrap procedures in class**\
+The bootstrap application procedures from class differ in application and background from the one describes above. The situations mentioned in class when to use simulations of data were when one does not have a specific formula for the distribution of something (therefore, normal distribution is not necessarily be applicable) or it is not easy to compute (slide 147). Especially strengthened was the application in forecasting a value, for example sales, for more than 1 period. Since the formula of an ETS model contains beside the previous Level and Trend also the unknown Error Term of the current period (depending on the ETS model not necessarily all components), it needs to be estimated. As long as the ETS model is additive, the error term remains normally distributed because it is not multiplied with following error terms of upcoming periods. In case of an ETS model where the error term is multiplicative ETS(M,...,...), error terms will be multiplied with each other when forecasting for more than 1 period. This results in the predicted value not being normally distributed anymore, even though the single errors might be. This means that the prediction intervals cannot be built based on normal quantiles anymore. (slide 146) A possible solution is to simulate the error term from a normal distribution (slide 147) where the parameters (mean (should be 0) and the variance) for the normal distribution are taken from previously observed errors. For every period, a new error term can be taken from this normal distribution and the desired statistics can be calculated again. (slide 147)\
+There are cases where the normal distribution is not applicable because errors are not normally distributed. An alternative is the use Bootstrap. As it was for Bootstrap in general, the definition in class goes in line with regarding it as re-sampling. (slide 169) Nevertheless, the procedure differs. In this context, Bootstrap is used for forecasting and especially to only "predict" error terms. This prediction of error terms is based on previously observed error terms. When one employs the Bootstrap method for 10 periods, one draws for every period a random error out of the entirety of already observed errors. To create more than 1 path, e.g. 1,000 paths to get an overview over the distribution of possibly followed paths, it will be necessary to draw for each path an error from the already observed error. The same error can therefore be taken several times per period but the path on which it is applied has (most probably) a different history. Accordingly, for every period, there is a distribution of values for the forecasted size. One can therefore state for every timestep, e.g. in which range the value will be with 95% probability. This can be done for median and mean and different other measures.
+
+### Part 2
+
+**Provide an example of a bootstrap procedure used to calculate prediction intervals using an ETS model with seasonality.**
+
+For this task, the timeseries of Arrivals in Australia, with origin New Zealand will be considered.\
+
+```{r, message=FALSE, warning=FALSE}
+# plot the data after filtering only arrivals from New Zealand
+aus_arrivals %>% 
+  filter(Origin == "NZ") %>% 
+  autoplot(Arrivals/1000) + theme_bw() + labs(title = "Arrivals in Australia from New Zealand",
+                                              x = "",
+                                              y = "Arrivals in Tsd.")
+```
+\
+The trend appears linear, it will be considered additive. Also, the seasonal effect does not change a lot during recent years, therefore it will be also considered as additive. \
+
+The form of the error will be assessed in the following, by setting up seasonality and trend as additive and varying the error between additive and multiplicative.\
+
+```{r, message=FALSE, warning=FALSE}
+# Additive error
+nz = aus_arrivals %>% filter(Origin == "NZ")
+model = nz %>% 
+  model(
+    `SES` = ETS(Arrivals ~ error("A") + trend("A") + season("A"))
+    )
+
+components(model) %>% autoplot()
+```
+```{r, message=FALSE, warning=FALSE}
+# Multiplicative error
+nz = aus_arrivals %>% filter(Origin == "NZ")
+model = nz %>% 
+  model(
+    `SES` = ETS(Arrivals ~ error("M") + trend("A") + season("A"))
+    )
+
+components(model) %>% autoplot()
+```
+\
+In the model with a multiplicative error component, the remainder has way less influence than in the other one. In both there is no structure but because of the magnitude of the error, the model with the multiplicative error is selected for the ongoing analysis.
+
+In the following, one will extract the elements from the model that ar needed to go on, e.g. the level, trend of the last period, $\alpha$, $\beta$, $\phi$ and $\sigma$.
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+ul = unlist(report(model))
+
+# last l
+l.127 = ul$SES.fit.states.l128
+
+# last b
+b.127 = ul$SES.fit.states.b128
+
+# last s
+s.123 = ul$SES.fit.states.s124
+s.124 = ul$SES.fit.states.s125
+s.125 = ul$SES.fit.states.s126
+s.126 = ul$SES.fit.states.s127
+s.127 = ul$SES.fit.states.s128
+seas = c(s.123, s.124, s.125, s.126, s.127)
+
+# alpha
+alpha = ul$SES.fit.par.estimate1
+
+# beta
+beta = ul$SES.fit.par.estimate2
+
+# phi
+phi = ul$SES.fit.par.estimate3
+
+# sigma
+sigma = sqrt(ul$SES.fit.fit.sigma2)
+
+# gamma
+gamma = as.double(report(model)[[2]][[1]]$fit$par[3,2])
+```
+
+The forecast shall be for 10 periods, thus h = 10 and 500 paths shall be done.\
+In addition, the matrices which are needed to store the values derived will be created.
+
+```{r, message=FALSE, warning=FALSE}
+h = 10 # 10-step ahead
+R = 500 # 500 replicates
+
+# set up the matrices needed for the forecast
+l.mat = matrix(nr=h, nc=R)
+b.mat = matrix(nr=h, nc=R)
+s.mat = matrix(nr=h, nc=R)
+y = matrix(nr=h, nc=R)
+```
+
+In the following, the matrices will be filled with initial values and afterwards the 500 paths will be predicted over the remaining 9 periods.
+
+```{r, message=FALSE, warning=FALSE}
+# extract the residuals from the model
+residuals = components(model)$remainder[5:131] # the first 4 values are NAs, therefore they will be excluded
+
+# extract the first time the residuals with bootstrapping
+eps = sample(size = R, x = residuals, replace = TRUE)
+
+# initialize the first prediction values manually
+y[1,] = (l.127 + b.127 + s.123) * (1+eps)
+l.mat[1,] = (alpha * (y[1,] - s.123) + (1 - alpha) * (l.127 + b.127)) * (1+eps)
+b.mat[1,] = (beta * (l.mat[1,] - l.127) + (1 - beta) * b.127) * (1+eps)
+s.mat[1,] = seas[1]
+
+# calculate the 9 left predictions for 500 paths
+for (h in 2:10){
+   eps = sample(size = R, x = residuals, replace = TRUE)
+   if(h < 5){
+     y[h,] = (l.mat[h-1,] + h*b.mat[h-1,] + seas[h]) * (1+eps)
+     l.mat[h,] = (alpha * (y[h-1,] - s.mat[h-1,]) + (1 - alpha) * (l.mat[h-1,] + b.mat[h-1,]))
+     b.mat[h,] = (beta * (l.mat[h,] - l.mat[h-1,]) + (1 - beta) * b.mat[h-1,])
+     s.mat[h,] = seas[h]
+   }
+   else{
+     y[h,] = (l.mat[h-1,] + h*b.mat[h-1,] + s.mat[h-4,]) * (1+eps)
+     l.mat[h,] = (alpha * (y[h-1,] - s.mat[h-1,]) + (1 - alpha) * (l.mat[h-1,] + b.mat[h-1,]))
+     b.mat[h,] = (beta * (l.mat[h,] - l.mat[h-1,]) + (1 - beta) * b.mat[h-1,])
+     s.mat[h,] = (gamma * (y[h,] - l.mat[h-1,] - b.mat[h-1,]) + (1 - gamma) * s.mat[h-4,])
+   }
+}
+
+# show the table
+kable(head(y[1:6,1:10]))
+```
+
+This table shows the prediction for all the first 6 periods (rows) for the first 10 paths (columns).\
+
+The prediction will be visualized in the following.
+
+```{r, message=FALSE, warning=FALSE}
+# create a table which shall contain later on confidence intervals, the actual numbers, mean, median of the timesteps for the predictions and the respective period
+ci = data.table("Period" = c(nz$Quarter, nz$Quarter[127] + seq(1,10,1)),
+                "Arrivals" = nz$Arrivals,
+                "l80" = as.double(NA),
+                "l90" = as.double(NA),
+                "l95" = as.double(NA),
+                "l99" = as.double(NA),
+                "h80" = as.double(NA),
+                "h90" = as.double(NA),
+                "h95" = as.double(NA),
+                "h99" = as.double(NA),
+                "mean" = as.double(NA),
+                "median" = as.double(NA))
+
+# fill the table with the respective values
+for(i in 1:10){
+  cis = quantile(y[i,], c(0.1,0.05,0.025,0.01,0.8,0.9,0.95,0.99))
+  for(j in 1:8){
+    ci[i+127,j+2] = as.double(cis[j])
+  }
+  ci[i+127,2] = as.double(NA)
+  ci[i+127,11] = mean(y[i,])
+  ci[i+127,12] = median(y[i,])
+}
+
+# avoid scientific notation
+options(scipen=999)
+
+plot_all = ggplot(ci, aes(x = Period)) +
+  geom_line(aes(y = l80/1000, color = "80% CI")) +
+  geom_line(aes(y = h80/1000, color = "80% CI")) +
+  geom_line(aes(y = l90/1000, color = "90% CI")) +
+  geom_line(aes(y = h90/1000, color = "90% CI")) +
+  geom_line(aes(y = l95/1000, color = "95% CI")) +
+  geom_line(aes(y = h95/1000, color = "95% CI")) +
+  geom_line(aes(y = l99/1000, color = "99% CI")) +
+  geom_line(aes(y = h99/1000, color = "99% CI")) +
+  geom_line(aes(y = Arrivals/1000, color = "Arrivals"), size = 0.7) +
+  geom_line(aes(y = median/1000, color = "median"), size = 0.7) +
+  scale_color_manual(values = c("80% CI" = "lightblue",
+                                "90% CI" = "blue",
+                                "95% CI" = "darkblue",
+                                "99% CI" = "black",
+                                "Arrivals" = "black",
+                                "median" = "red")) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5)) +
+  labs(title = "Arrivals from NZ in Australia - whole timeframe",
+       x = "",
+       y = "Arrivals in Tsd.")
+
+# create a second plot but with a smaller time horizon to show the prediction interval more clearly
+
+plot_selected = ggplot(ci[90:137,], aes(x = Period)) +
+  geom_line(aes(y = l80/1000, color = "80% CI")) +
+  geom_line(aes(y = h80/1000, color = "80% CI")) +
+  geom_line(aes(y = l90/1000, color = "90% CI")) +
+  geom_line(aes(y = h90/1000, color = "90% CI")) +
+  geom_line(aes(y = l95/1000, color = "95% CI")) +
+  geom_line(aes(y = h95/1000, color = "95% CI")) +
+  geom_line(aes(y = l99/1000, color = "99% CI")) +
+  geom_line(aes(y = h99/1000, color = "99% CI")) +
+  geom_line(aes(y = Arrivals/1000, color = "Arrivals"), size = 0.7) +
+  geom_line(aes(y = median/1000, color = "median"), size = 0.7) +
+  scale_color_manual(values = c("80% CI" = "lightblue",
+                                "90% CI" = "blue",
+                                "95% CI" = "darkblue",
+                                "99% CI" = "black",
+                                "Arrivals" = "black",
+                                "median" = "red")) +
+  theme(legend.title = element_blank(),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=12),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    panel.grid.major = element_line(colour = "white", size = 0.5)) +
+  labs(title = "Arrivals from NZ in Australia - recent years",
+       x = "",
+       y = "Arrivals in Tsd.")
+
+# plot the graphs
+require(gridExtra)
+grid.arrange(plot_all, plot_selected, ncol = 1)
+```
+\
+The continued seasonality and the positive trend can be seen in the prediction as well. The confidence intervals are of a reasonable size and follow the seasonality as well.
+
+## Nr. 3 {.tabset}
+
+**Explain how multiple linear regression can be applied to time series, what are the model’s assumptions and what are the features commonly used. Explain both the goodness-of-fit test and the Wald test, by providing an example of such fitted model in the context of time series. Interpret the output.**
+
+### Part 1
+
+**Explain how multiple linear regression can be applied to time series, what are the model’s assumptions and what are the features commonly used.**
+
+**General about Linear Regression**\
+Linear Regression is a form of predicting unknown values from values that are already known. The values that are to be predicted are mostly referred to as $y$ and are called "independent variables". In simple linear regression, the prediction is done only by the help of 1 kind of predicting variable which is supposed to drive the $y$s. This driver is referred to as $x$ and is accordingly called "independent variable".\
+To train the linear model, a dataset is given, including the dependent and the independent variables. The program then tries to fit a straight line (therefore linear regression) through the cloud of $y$-values while this line should minimize the distances between the y-values of the observations and this newly created line. The final straight line has two characteristics, an intercept with the y-axis where $x$ = 0 and a slope. The slope is mostly called $\beta$ and indicates the relationship between $x$ and $y$, hence, how $x$ is driving $y$. The larger the absolute value of $\beta$ is, the stronger is the effect of $x$ on $y$. It should be noted that the magnitude of this parameter strongly depends on the scaling of both variables. The closer it is to zero, the weaker is the effect of $x$ on $y$. In theory, $\beta$ can take all natural numbers. Negative values indicate that the increase in $x$ will have a negative effect on $y$ at the magnitude of $\beta$ and vice versa for positive $\beta$s.\
+This constructed straight line is then applied on the new unknown data. The distance between the line and the observations is taken into account as an error term, and the smaller this error term is, the better is the model fit, as indicated above. To account for deviations below and above the line in the same way, the distances are squared. A side effect is that larger errors are evaluated stronger.\
+The corresponding formula to predict $y$ on the basis of $x$ is in the form of a linear function (the intercept is in this work denoted as $\alpha$, otherwise often $\beta_0$) with error term ($\epsilon$).\
+$y = \alpha + \beta x + \epsilon$\
+This model describes the most simple case when there is only on $x$, so only 1 predicting/independent variable. Linear regression can also be based on several $x$s and is then called multiple linear regression. The working principle is very similar even though it cannot be presented in a 2-dimensional graph anymore. With multiple predictors, it will be necessary to employ more than 1 $\beta$, since every predictor gets an own $\beta$. Therefore, one needs an extra dimension for every predictor that is added while the $y$, the dependent variable stays 1-dimensional. Also, the intercept remains a scalar as does the error term. A possible notation reads as follows for $n$ predictors.\
+$y = \alpha + \sum_{i = 1}^{n} \beta_{i}x_{i} + \varepsilon$\
+
+**How does it work for time series?**\
+Applying multiple linear regression on forecasting creates some additional complexity in comparison to the "regular" multiple linear regression in a sense that for each timestep, an extra prediction of the variable of interest, $y$ needs to be made.\
+A possible notation is very similar to the one from multiple linear regression but includes now the mentioned time component for both, the $x$s and the $y$s while the parameters, as there are the intercept, and the $\beta$s stay constant for every timestep. The model building mechanism therefore minimizes the error over all periods of the training set to eventually provide only one value for each parameter. A possible formulation for $n$ predictors is the following.\
+$y_{t} = \alpha + \sum_{i = 1}^{n} \beta_{i}x_{i,t} + \varepsilon_{t}$\
+While this one formula is the standard formula, there are different ways to apply it. On slide 233, there is a differentiation in predictions in the past (using values of $x$ and $y$ that were actually obtained) where the predictions are then called "fitted values". Predictions in the future what means that the predicted timeframe is beyond the scope of the observed timeframe are called "out-of-sample". Hyndman et al. introduce Ex-ante and Ex-post forecasts which slightly differ in their definition. In the ex-ante case, only predictors are used that are known at the time of prediction T, so for every prediction that is to be made later than that, in $t = T + x$ with $x > 0$, the predictors must be forecasted as well what creates uncertainty. Generally, it should be that the independent variables, the $x$s, should be better predictable than the dependent variable, according to slide 231. Ex-post forecasts are not genuine forecasts since they use later values of the predictors as soon as they have been observed but they do not assume knowledge about the $y$s which shall be predicted. This approach is comparable with the fitted values mentioned above.\
+Comparing ex-ante and ex-post forecasts can give insights if the uncertainty comes from a bad model or from the predictors.\
+Hyndman et al. also mention the option to not precisely forecast the independent predictors but assume different values for them to fit in a scenario. With scenario-based forecasting, it will be possible to simulate especially interesting situations detached from definite values for predictors.\
+Talking about predictors, it should be clarified what predictors in this context can be. As the $y$-values are a timeseries, the predictors must also be timeseries with entries in exactly the points in time where $y$ should be predicted. As in the "normal" multiple linear regression (without a timeseries aspect), predictors are can be measures that are supposed to have an effect on the outcome variable. For example, to predict the price of flights from Switzerland into a holiday region, fuel costs, inflation rate or the prospective number offered flights at this special time can be predictors. The specialty here is that also time itself can be a predictor. One could add an extra dummy variable, that indicates if there are vacations right now in Switzerland or not. If yes, the model would add an extra markup on the price prediction. When predicting CO2 emissions in a year, one could use the time itself as a predictor since the development follows an approximately linear relationship (Statista 2023).
+
+**Which features to include?** (slide 256)\
+Coming back to flight price example, it is worth mentioning that the typical features to include in multiple linear regression for timeseries while using time as a predictor are trend and seasonality. For the number of conducted flights there should be a positive trend since the market has grown in recent years, excluding Covid, and simply t representing the number of the specific period would be probably a reasonable predictor.\
+Seasonality can be taken into account by modeling the seasons as dummy variables. Then, the model would create a markup for each indicator/season in comparison to a reference season. Since dummy variables are created only for the *number of categories - 1*, the one category that does not get a dummy variable is taken as a reference for all the other ones. If the high season does not get a dummy variable, the other seasons will get a negative $\beta$, indicating that, compared to the high season, in this specific season, there are less flights.\
+For the Covid situation, it would be possible to use a dummy variable as well and set it to 0 before February 2020 and 1 after February 2020. The model would probably put a negative $\beta$ for this predictor since this intervention had a negative effect on the number of flights from which the market is recovering. This can be seen as a special event, more particular an intervention that does not appear regularly. Special events that appear regularly are e.g. holidays.\
+
+**Assumptions**\
+The assumptions for these models are mainly about the error terms and their distribution (slide 234). The errors are expected to have a mean of 0 because otherwise, the prediction would be biased to either underestimate the values of $y$ (mean > 0) or overestimate the values of $y$ (mean < 0). The errors are also expected to be normally distributed. If not, it would be possible to get more information out of the predictors. Errors should have a constant variance over time (slide 245) and it is important that errors are independent from each other what is called "autocorrelation". Especially in timeseries this is an issue because if for example seasonality would have not been taken into account, every 4th value (for quarterly seasonality) would be too low/high or a recurring sine form/seasonality was neglected, leading to correlation of subsequent errors because if a value was estimated to low, the error is positive and the next ones will be positive as well because the prediction "line" is under the sine curve now. More information could be retrieved form the data. The $x$s are assumed to be not random variables, as Hyndman et al. point out.\
+Also, it is important to mention that whenever using a linear model, one assumes that *"the relationship between the forecast variable and the predictor variables satisfies this linear equation"* (Hyndman et al., Chapter 7.1) what is an assumption about the whole model rather than about the error terms.
+
+### Part 2
+
+**Explain both the goodness-of-fit test and the Wald test, by providing an example of such fitted model in the context of time series. Interpret the output.**
+
+\
+The quality of predictions is usually evaluated with already observed values, so "in-sample" because otherwise there would be no actual true value to compare the forecast with. The typical measure for goodness-of-fit is the R-squared and the adjusted R-squared. (slide 241) The R-squared can be seen as the square of correlation of $y$ and $x$ where it is better for the model, the closer the value is to 1. The difference to the adjusted R-squared is that the adjusted version takes the added complexity for an extra parameter into account and penalizes it. (slide 242)\
+\
+A second way to assess the model and especially its parameters is the so-called Wald-test. The aim is to accept or reject the H0 that states that the parameter has no influence and is therefore 0. The test assumes a normal distribution of the parameter $\beta$, $N(\beta,\sigma_{\beta}^2)$ where H0 assumes $\beta = 0$ and H1 assumes $\beta ≠ 0$ under known variance. To test the hypotheses, one can normalize $\beta$ by dividing it with its standard error. The larger the resulting value, the more likely it is that $\beta$ is different from 0 and H0 can be rejected, meaning that this $\beta$ indeed has an effect. Thjis is also called significance.
+\
+To demonstrate how these measures work, a dataset about weather data from the Guanyuan region in China was used. It contains various sizes like temperature (TEMP), airpressure (PRES), dew point temperature (DEWP), RAIN, wind speed (WSPM), several chemical components of the air like CO and others. The data are provided between March 2013 and March 2017 on an hourly basis, resulting in more than 32,000 observations. The objective will be to predict the temperature. The data is not checked for multicollinearity because it is not relevant for the aim of the task.\
+
+First, the time information is comprised to a date format.
+```{r, message=FALSE, warning=FALSE}
+qu = fread("PRSA_Data_Guanyuan_20130301-20170228.csv")
+
+datetime = qu %>%
+  select(year, month, day, hour) %>% 
+  mutate(date = make_datetime(year, month, day, hour))
+
+qu$datetime = datetime$date
+```
+The data are being transformed further to use them later on in a linear regression.
+```{r, message=FALSE, warning=FALSE}
+# create a duplicate
+qu_small = qu
+
+# remove missing values
+qu_small = na.omit(qu_small)
+
+# transform the data to a tsibble
+qu_small = tsibble(qu_small, index = datetime, key = No)
+```
+
+As described above, dummy variables will be created in the following to model the season in which the data row was observed and if it is daytime or nighttime. Also, a random feature will be created to show how a definitely unrelated variable will be displayed and treated by the model.
+
+```{r, message=FALSE, warning=FALSE}
+qu_small$winter = ifelse(qu_small$month %in% c(12,1,2), 1 , 0)
+qu_small$spring = ifelse(qu_small$month %in% c(3,4,5), 1 , 0)
+qu_small$summer = ifelse(qu_small$month %in% c(6,7,8), 1 , 0)
+qu_small$day = ifelse(qu_small$hour %in% 7:21, 1, 0)
+set.seed(1)
+qu_small$random = sample(1:10, nrow(qu_small), replace = TRUE)
+```
+
+To get an impression of the form of the data and which features might be useful, the data will be plotted in advance.
+```{r, message=FALSE, warning=FALSE}
+# plot the data for temperature
+ggplot(qu_small, aes(x = datetime, y = TEMP)) +
+  geom_line() +
+  labs(title = "Temperature in Guanyuan in 2013 - 2017",
+       y = "Temperature",
+       x = "") +
+  theme(axis.text=element_text(size=12),
+        axis.title=element_text(size=12),
+        panel.background = element_rect(fill = "white", colour = "black"),
+        panel.grid.major = element_line(colour = "white", size = 0.5))
+```
+\
+One can observe distinct seasonality but no trend. This information will be used in the upcoming modeling part since trend will not be assumed to be a predictor.
+
+In the following paragraph, the model will be created to explain the both test measures. For this, only a random sample of size 400 will be considered.
+
+```{r, message=FALSE, warning=FALSE}
+# convert the data to a tsibble
+qu_small = tsibble(qu_small[,c("No","month","PM2.5","PM10","SO2","NO2","CO","O3","TEMP","PRES","DEWP","RAIN","wd","WSPM","random","winter","spring","summer","day","datetime")], index = datetime)
+
+# create a sample that is used then later on
+set.seed(1)
+sample = sample(1:nrow(qu_small), 400)
+
+# create the linear model report with most of the features
+qu_small[sample, ] %>% model(TSLM(TEMP ~ WSPM + RAIN + DEWP + PRES + O3 + CO + NO2 + SO2 + PM10 + PM2.5 + winter + spring + summer + day + random)) %>% report()
+
+# extract the predictions from the same model
+predictions = qu_small[sample, ] %>% model(TSLM(TEMP ~ WSPM + RAIN + DEWP + PRES + O3 + CO + NO2 + SO2 + PM10 + PM2.5 + winter + spring + summer + day + random)) %>% fitted()
+
+# save the values in a data table
+fit = data.table("Datetime" = qu_small$datetime[sample],
+                 "True Temperature in °C" = qu_small$TEMP[sample],
+                 "Predicted Temperature in °C" = predictions$.fitted)
+
+# plot the fitted and true data
+ggplot(fit, aes(x = `Predicted Temperature in °C`, y = `True Temperature in °C`)) +
+  geom_point() +
+  geom_function(fun = function(x) x, color = "red", size = 1) +
+  labs(title = "Predicted and true temperature values") +
+  theme(legend.position="bottom",
+      legend.title = element_blank(),
+      axis.text=element_text(size=12),
+      axis.title=element_text(size=12),
+      panel.background = element_rect(fill = "white", colour = "black"),
+      panel.grid.major = element_line(colour = "white", size = 0.5))
+```
+\
+From this overview, one can read the previously introduced measures.\
+
+**Goodness of fit**
+The R-squared is 0.9109 which means that 91.09% of the variance of the temperature were explained by the model. The adjusted R-squared is slightly lower with 0.9074 but the difference is not very big what indicates that there is no too tremendous overfit. In addition, over 90% for both values is an acceptable value for this linear model. Since it was not the task to find the best possible model but explain different measures with an example, there will be no further investigation to find a better model or to make any concrete forecast.\
+The graph representing predicted and fitted values shows the straight line on which in the optimal case all values would lay. One can see that the values lay around this fitted line and follow its shape what means that fitted values and predicted values are very similar. There are no significant outliers and the fit is overall equally good.\
+
+**Wald test**
+From the tabular overview, one can derive that there are different independent variables which are highly significant in explaining the dependent variable, visualized by the stars (*) at the end of each line. The more stars there are, the more significant this feature is, this means that it has an effect different from 0 with a special probability. The more stars the higher is this probability, for example two stars mean that only between 0.1% and 1.0% (t value) this feature has an effect of 0. That means with 99% to 99.9%, this feature's effect is different from 0. For several features, the t-value is even below 0.001, what is the case for DEWP, PRES, O3, winter and day.\
+
+Besides this, one can also observe that the $\beta$ estimates have different signs where a negative one indicates a negative coherence between the dependent variable and the respective feature. This shall be illustrated graphically below.\
+Also, it is to underline that for the seasons, dummy variables were created only for winter, summer and spring. Autumn is therefore the reference. The $\beta$ estimates can hence be interpreted as follows. Being in winter will influence the estimated temperature by approximately -4.33°C compared to being in autumn. For the summer, the effect is +1.61°C. That the effect is different from 0 is only for winter highly significant, with a probability of this effect being not different from 0 of 0.000000005130148.
+\
+The consciously for demonstration purposes included random variable is not significant as it was to expect and its effect is 0 with 90.044%.\
+\
+
+For the mentioned visualization, it is to remark that, since the variation in air pressure is not as strong as the variation in temperature and it is on a different scale, a transformation needs to be conducted to these values. Finally, a deviation from the transformed air pressure mean will be presented as a proxy to show the development more clear.
+
+```{r, message=FALSE, warning=FALSE}
+scale = 20
+
+# transform the air pressure values
+qu_small$PRES_new = qu_small$PRES-1000
+mean = mean(qu_small$PRES_new)
+qu_small$PRES_new = qu_small$PRES_new/mean
+
+# show the graph of the development of temperature and air pressure as an example
+ggplot(qu_small[sample,], aes(x = datetime)) +
+  geom_line(aes(y = TEMP, color = "TEMP"), size = 1) +
+  #geom_line(aes(y = (PRES/1000)^100, color = "PRES")) +
+  geom_line(aes(y = PRES_new*scale, color = "PRES")) +
+  geom_line(aes(y = DEWP, color = "DEWP")) +
+  scale_y_continuous(sec.axis = sec_axis(~./scale,
+                                         name="air pressure deviation from mean",
+                                         breaks = waiver() )) +
+  scale_color_manual(values = c("TEMP" = "black",
+                                "PRES" = "blue",
+                                "DEWP" = "green")) +
+  labs(title = "Graphical coherence between the dependent \n and selected independent variables",
+       y = "Temperature in °C",
+       x = "Time") +
+  theme(legend.position="bottom",
+        legend.title = element_blank(),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=12),
+        panel.background = element_rect(fill = "white", colour = "black"),
+        panel.grid.major = element_line(colour = "white", size = 0.5))
+```
+\
+One can see that the dewpoint temperature (green line) follows closely the temperature and has therefore a positive $\beta$ estimate, the higher the dewpoint temperature, the higher the real temperature. In contrast, one can also see why the air pressure (blue line) has a negative sign. It develops contrary to the temperature.\
+It must be said that is possibly harder to predict the dewpoint temperature than the actual temperature but the aim of this task is solely to show how the mechanism works and therefore this is just a side remark.
+
+## References
+
+### Data set
+
+https://archive.ics.uci.edu/ml/machine-learning-databases/00501/, 17.05.2023.
+
+### Packages
+  Dowle M, Srinivasan A (2021). _data.table: Extension of
+  `data.frame`_. R package version 1.14.2,
+  <https://CRAN.R-project.org/package=data.table>.
+
+  Wickham H, François R, Henry L, Müller K (2022). _dplyr: A Grammar
+  of Data Manipulation_. R package version 1.0.10,
+  <https://CRAN.R-project.org/package=dplyr>.
+
+  Hyndman R (2023). _fpp3: Data for "Forecasting: Principles and
+  Practice" (3rd Edition)_. R package version 0.5,
+  <https://CRAN.R-project.org/package=fpp3>.
+
+  Yihui Xie (2022). knitr: A General-Purpose Package for Dynamic
+  Report Generation in R. R package version 1.40.
+
+  Yihui Xie (2015) Dynamic Documents with R and knitr. 2nd edition.
+  Chapman and Hall/CRC. ISBN 978-1498716963
+
+  Yihui Xie (2014) knitr: A Comprehensive Tool for Reproducible
+  Research in R. In Victoria Stodden, Friedrich Leisch and Roger D.
+  Peng, editors, Implementing Reproducible Computational Research.
+  Chapman and Hall/CRC. ISBN 978-1466561595
+
+### Miscellaneous
+
+Pittavino, M.: Lecture Slides Spring Semester 2023 "Forecasting with Applications in Business"\
+Hyndman, R.J., & Athanasopoulos, G. (2021) Forecasting: principles and practice, 3rd edition, OTexts: Melbourne, Australia. OTexts.com/fpp3. Accessed on 19.05.2023\
+Statista 2023: https://www.statista.com/statistics/276629/global-co2-emissions/. Accessed on 29.05.2023
