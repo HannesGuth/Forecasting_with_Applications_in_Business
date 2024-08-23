@@ -1,0 +1,284 @@
+TP 4
+================
+Hannes Guth
+2024-08-23
+
+``` r
+library(fpp2) # library that includes the data set
+#library(fabletools)
+library(fable) # package including the function tsibble
+library(dplyr) # package including the pipe operator
+library(scales) # package for axis ticks labelling
+library(data.table) # package including data table
+```
+
+### The following code including comments is taken from the task and only minor parts will be edited. 
+
+### The results will be commented together at the end of the document.
+
+# ETS model, “AAdN”
+
+``` r
+Paperback = books[,1] # assign the paperback data to Paperback
+times <- seq(1, dim(books)[1], 1)    # vector for time
+books_df <- data.frame(books[, 1:2]) # Paperback and Hardcover as data.frame
+
+books_tsibble <- books_df |>           # create tsibble object
+  mutate(Time = times, .before=1) |> 
+  as_tsibble(index = Time)
+
+model_AAdN <- books_tsibble |> # create the model
+  model(
+    `SES` = ETS(Paperback ~ error("A") + trend("Ad") + season("N"))
+    )
+```
+
+``` r
+set.seed(123) # set the random seed to have always the same random numbers generation
+
+h.step <- 10 # 10-step ahead
+R <- 1000 # num of replicates
+
+# for the bootstrap case
+l.mat <- matrix(nr=h.step, nc=R)
+b.mat <- matrix(nr=h.step, nc=R)
+y <- matrix(nr=h.step, nc=R)
+
+# for the normal distribution case
+l.mat.norm <- matrix(nr=h.step, nc=R)
+b.mat.norm <- matrix(nr=h.step, nc=R)
+y.norm <- matrix(nr=h.step, nc=R)
+```
+
+``` r
+a <- unlist(report(model_AAdN))
+```
+
+    ## Series: Paperback 
+    ## Model: ETS(A,Ad,N) 
+    ##   Smoothing parameters:
+    ##     alpha = 0.03259223 
+    ##     beta  = 0.0001000242 
+    ##     phi   = 0.98 
+    ## 
+    ##   Initial states:
+    ##      l[0]     b[0]
+    ##  171.8317 1.835088
+    ## 
+    ##   sigma^2:  1220.294
+    ## 
+    ##      AIC     AICc      BIC 
+    ## 321.7717 325.4239 330.1789
+
+``` r
+# last l
+l.30 <- a$SES.fit.states.l31         # 208.2084
+
+# last b
+b.30 <- a$SES.fit.states.b31         # 0.9943547
+
+# alpha
+alpha <- a$SES.fit.par.estimate1    # 0.03259223
+
+# beta
+beta <- a$SES.fit.par.estimate2     # 0.0001000242 
+
+# phi
+phi <- a$SES.fit.par.estimate3      # 0.98
+
+# sigma
+sigma <- sqrt(a$SES.fit.fit.sigma2) # 34.9327
+```
+
+``` r
+## initialization of y_31, b_31 and l_31
+
+set.seed(123) # for reproducibility
+eps_bs = sample(components(model_AAdN)$remainder[2:31], 1000, replace = TRUE) # apply sample with replacement on the remainders of the model to generate the error terms (bootstrap)
+eps_nd = rnorm(n=R, mean=0 , sd=sigma) # generate error terms through applying the normal distribution
+
+y[1, ] <- l.30 + phi*b.30 + eps_bs # set the 31. "true" value using the bootstrap error terms
+l.mat[1, ] <- l.30 + phi*b.30 + alpha*eps_bs # calculate the 31. level estimation
+b.mat[1, ] <- phi*b.30 + beta*eps_bs # set the 31. b
+
+# same for the residuals of the normal distribution
+y.norm[1, ] <- l.30 + phi*b.30 + eps_nd
+l.mat.norm[1, ] <- l.30 + phi*b.30 + alpha*eps_nd
+b.mat.norm[1, ] <- phi*b.30 + beta*eps_nd
+
+## the loop for the next steps
+for(h in 2:10) {
+  # recalculate the values as in the initialization but with the respective previous values for the bootstrap method
+  eps_bs = sample(components(model_AAdN)$remainder[2:31], 1000, replace = TRUE)
+  y[h,] <- l.mat[h-1,] + phi*b.mat[h-1,] + eps_bs
+  l.mat[h,] <- l.mat[h-1,] + phi*b.mat[h-1,] + alpha*eps_bs
+  b.mat[h,] <- phi*b.mat[h-1,] + beta*eps_bs
+  
+  # recalculate the values as in the initialization but with the respective previous values for the normal distribution method
+  eps_nd = rnorm(n=R, mean=0, sd=sigma)
+  y.norm[h,] <- l.mat[h-1,] + phi*b.mat[h-1,] + eps_nd
+  l.mat.norm[h,] <- l.mat[h-1,] + phi*b.mat[h-1,] + alpha*eps_nd
+  b.mat.norm[h,] <- phi*b.mat[h-1,] + beta*eps_nd
+}
+```
+
+``` r
+par(mfrow=c(1,2)) # arrange the plots
+
+plot(Paperback, xlim = c(0, 40), ylim = c(90, 350), main = "Sales forecast, bootstrap method", ylab = "Sales", xlab = "Period") # create at plot, showing the forecast for the bootstrap method
+
+for(j in c(1:1000)) { # plot 1000 paths just for illustration (bootstrap method)
+  points(y[,j] ~ c(31:40), type = "l", lwd = 2)
+}
+
+
+plot(Paperback, xlim = c(0, 40), ylim = c(90, 350), main = "Sales forecast, normal distribution method", ylab = "", xlab = "Period") # create at plot, showing the forecast for the normal distribution method
+
+for(j in c(1:1000)) { # plot 1000 paths just for illustration (normal distribution method)
+  points(y.norm[,j] ~ c(31:40), type="l", lwd=2)
+}
+```
+
+![](Guth_Hannes_TP4_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+
+## **Code of No 6:** 6. Use the simulated y to compute the following statistics:
+
+#### a. the prediction intervals at 95% for the 10-days ahead
+
+#### b. the distribution (histogram + summary numbers) of the total sales over the next 5-days
+
+#### c. the probability that the sales will increase during the next 3-days.
+
+Note: loop “for” can be used or the apply function. apply(y, 1, mean)
+means “apply function mean for each row of y”. apply(y, 2, sd) means
+“apply function sd for each column of y”.
+
+For the upcoming exercises, there will be a comparison drawn between the
+approach using the normal distribution and the bootstrap method. The
+comments can be found below.
+
+#### a. The prediction intervals at 95% for the 10-days ahead
+
+Both interval lines will be plotted in the same graph for comparison.
+
+``` r
+# create a new data table with prediction intervals for the 10 single days
+table = transpose(data.table(apply(y.norm, 1, quantile, probs=c(0.025, 0.975))))
+table$V3 = transpose(data.table(apply(y, 1, quantile, probs=c(0.025, 0.975)))[1])
+table$V4 = transpose(data.table(apply(y, 1, quantile, probs=c(0.025, 0.975)))[2])
+
+ggplot(table) + # create a new ggplot with the previously created data
+  geom_line(aes(y = V1, x = seq(1,10,1), color = "lower limit norm. distr.")) + # plot the data for the normal distribution, lower limit
+  geom_line(aes(y = V2, x = seq(1,10,1), color = "upper limit norm. distr.")) + # as above
+  geom_line(aes(y = V3, x = seq(1,10,1), color = "lower limit bootst. distr.")) + # as above
+  geom_line(aes(y = V4, x = seq(1,10,1), color = "upper limit bootst. distr.")) + # as above
+  scale_color_manual(values = c("lower limit norm. distr." = "red", # set the color for the normal distribution, lower limit
+                                "upper limit norm. distr." = "blue", # as above
+                                "lower limit bootst. distr." = "yellow", # as above
+                                "upper limit bootst. distr." = "green")) + # as above
+  labs(title = "Upper and lower limits of the conf. interv. for both methods", y = "Sales", x = "Day") + # edit the labels
+  theme(legend.title = element_blank(), # remove the legend title
+          axis.text=element_text(size=12), # change the axis text size
+          axis.title=element_text(size=12), # change the axis title size
+          panel.background = element_rect(fill = "white", colour = "black"), # change the background colors
+          panel.grid.major = element_line(colour = "grey", size = 0.5)) + # change the grid appearance
+  scale_x_continuous(breaks=pretty_breaks()) # change the scale to integers
+```
+
+![](Guth_Hannes_TP4_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+
+#### b. The distribution (histogram + summary numbers) of the total sales over the next 5-days
+
+``` r
+# show the summary statistics for both methods
+y.tot.norm <- apply(y.norm[1:5, ], 2, sum)
+summary(y.tot.norm)
+```
+
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ##     822     997    1052    1051    1103    1289
+
+``` r
+y.tot.bootstrap <- apply(y[1:5, ], 2, sum)
+summary(y.tot.bootstrap)
+```
+
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ##   810.3   983.1  1038.8  1036.2  1089.3  1247.7
+
+``` r
+# plot the distribution for the next 5 days
+par(mfrow=c(1,2))
+hist(y.tot.norm, xlim=range(800:1400),breaks = 9, main = "Hist., Normal Distribution", xlab = "Sales")
+hist(y.tot.bootstrap, xlim=range(800:1400), breaks = 9, main = "Hist., Bootstrap", xlab = "Sales")
+```
+
+![](Guth_Hannes_TP4_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
+
+#### c. The probability that the sales will increase during the next 3-days.
+
+``` r
+# calculate the probability of daily increasing sales
+mean((y.norm[1,]<y.norm[2,])&(y.norm[2,]<y.norm[3,]))
+```
+
+    ## [1] 0.195
+
+``` r
+mean((y[1,]<y[2,])&(y[2,]<y[3,]))
+```
+
+    ## [1] 0.203
+
+### What does bootstrap mean taking into account the context of the exercise?
+
+Bootstrap, in this context, means to take a random sample with
+replacement, in this case of the residuals/remainders the model_AAdN
+produces.
+
+### Why and when can it be applied?
+
+It is applied here because the normal distribution is possibly not a
+justified assumption and the bootstrap does not rely on the data being
+normally distributed.
+
+### Comment on your results.
+
+Plotting the forecast at the end of No. 5, one can easily observe a
+lower variance for the bootstrap method than for the normal distribution
+method. This is also reflected in the plot for the confidence interval
+of these methods. The confidence interval for the normal distribution
+method is constantly larger than the one for the bootstrap method.  
+
+The both distributions look approximately the same. The values retrieved
+from forecasting with errors from the normal distribution method shows a
+few more observation in the tails, as could have been expected after
+analyzing the previous graphs. The histogram for the bootstrap method is
+therefore slightly more dense in the center.  
+
+The probability for a continuous sales increase during the next 3 days
+is approximately 20% and with that similar for both methods. It is
+slightly higher for the bootstrap method with 20.3% than for the method
+using the normal distribution which results in 19.5%.
+
+## References
+
+### Packages
+
+Hyndman R (2023). *fpp2: Data for “Forecasting: Principles and Practice”
+(2nd Edition)*. R package version 2.5,
+<https://CRAN.R-project.org/package=fpp2>.
+
+O’Hara-Wild M, Hyndman R, Wang E (2022). *fable: Forecasting Models for
+Tidy Time Series*. R package version 0.3.2,
+<https://CRAN.R-project.org/package=fable>.
+
+Wickham H, François R, Henry L, Müller K (2022). *dplyr: A Grammar of
+Data Manipulation*. R package version 1.0.10,
+<https://CRAN.R-project.org/package=dplyr>.
+
+Wickham H, Seidel D (2022). *scales: Scale Functions for Visualization*.
+R package version 1.2.1, <https://CRAN.R-project.org/package=scales>.
+
+Dowle M, Srinivasan A (2021). *data.table: Extension of `data.frame`*. R
+package version 1.14.2, <https://CRAN.R-project.org/package=data.table>.
