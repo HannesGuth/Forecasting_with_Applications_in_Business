@@ -1,0 +1,10 @@
+# Exclude the entire `vendor` directory from language stats
+vendor/**/* linguist-vendored
+
+# Exclude all markdown files
+*.md linguist-documentation
+
+# Exclude generated files
+*.min.js linguist-generated
+
+* linguist-vendored
